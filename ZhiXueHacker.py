@@ -9,6 +9,8 @@ from selenium import webdriver
 import json
 from selenium.webdriver.common.by import By
 
+VERSION = "v1.0"
+
 '''
 Pandoc
 Copyright (C) 2006-2023 John MacFarlane <jgm at berkeley dot edu>
@@ -514,8 +516,10 @@ print('''
  / //\ | | | |/  \ |_| |  __/ __  / (_| | (__|   <  __/ |   
 /____/_| |_|_/_/\_\__,_|\___\/ /_/ \__,_|\___|_|\_\___|_|                                                      
 ''')
+print("Version:", VERSION)
 print("Copyright © 2024 HShiDianLu. All Rights Reserved.")
 print()
+time.sleep(1)
 if not os.path.exists("cookies.json"):
     print("未找到Cookies缓存，请重新登录")
     login()
