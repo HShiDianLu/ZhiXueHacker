@@ -39,7 +39,7 @@
 We promise not to save your username and password.
 
 ---
-Copyright © 2023 by HShiDianLu.
+Copyright © 2024 by HShiDianLu.
 
 ## Pandoc License
 Pandoc
