@@ -40,8 +40,9 @@
 
 We promise not to save your username and password.
 
----
 Copyright © 2024 by HShiDianLu.
+
+---
 
 ## Pandoc License
 Pandoc
