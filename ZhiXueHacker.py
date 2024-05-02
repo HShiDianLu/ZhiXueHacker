@@ -1,3 +1,4 @@
+import math
 import os.path
 import random
 import time
@@ -9,7 +10,7 @@ from selenium import webdriver
 import json
 from selenium.webdriver.common.by import By
 
-VERSION = "v1.0"
+VERSION = "v1.2"
 
 '''
 Pandoc
@@ -300,6 +301,11 @@ def load(token, page):
         return -1
 
 
+def calcRank(percentage, total):
+    rank = math.ceil(percentage / 100 * total)
+    return min(max(rank, 1), total)
+
+
 def main():
     with open("cookies.json", "r", encoding="utf-8") as f:
         cookies = json.load(f)
@@ -338,17 +344,64 @@ def main():
     examId = exams[choice]['examId']
     examName = exams[choice]['examName']
     print(examId)
-
+    # s = requests.get(
+    #     "https://www.zhixue.com/zhixuebao/report/exam/getLevelTrend?examId=" + examId + "&pageIndex=1&pageSize=5",
+    #     headers={"XToken": token}).json()['result']['list']
+    # print(s)
+    # totalClassNum = 0
+    # totalGradeNum = 0
+    # for i in s[0]['dataList']:
+    #     if i['id'] == examId:
+    #         totalClassNum = i['totalNum']
+    # for i in s[1]['dataList']:
+    #     if i['id'] == examId:
+    #         totalGradeNum = i['totalNum']
+    subjectRank = {}
+    paperList = requests.get(
+        url="https://www.zhixue.com/zhixuebao/report/exam/getReportMain?examId=" + examId,
+        headers={"XToken": token}).json()['result']['paperList']
+    for i in paperList:
+        subjectRank[i['subjectCode']] = {'rank': None, 'classTotal': None, 'gradeTotal': None}
+    try:
+        s = requests.get("https://www.zhixue.com/zhixuebao/report/exam/getSubjectDiagnosis?examId=" + examId,
+                         headers={"XToken": token}).json()['result']['list']
+        print(s)
+        for i in s:
+            subjectRank[i['subjectCode']]['rank'] = i['myRank']
+        print(subjectRank)
+    except:
+        print("排名获取失败")
     s = requests.get(
         url="https://www.zhixue.com/zhixuebao/report/exam/getReportMain?examId=" + examId,
         headers={"XToken": token}).json()['result']['paperList']
     print(s)
+    for i in s:
+        tmps = requests.get(
+            "https://www.zhixue.com/zhixuebao/report/paper/getLevelTrend?examId=" + examId + "&pageIndex=1&pageSize=5&paperId=" +
+            i['paperId'], headers={"XToken": token}).json()['result']['list']
+        print(tmps)
+        for j in tmps[0]['dataList']:
+            if j['id'] == i['paperId']:
+                try:
+                    subjectRank[i['subjectCode']]['rank'] = calcRank(subjectRank[i['subjectCode']]['rank'], j['totalNum'])
+                except:
+                    pass
+                subjectRank[i['subjectCode']]['classTotal'] = j['totalNum']
+        for j in tmps[1]['dataList']:
+            if j['id'] == i['paperId']:
+                subjectRank[i['subjectCode']]['gradeTotal'] = j['totalNum']
     print("\n" + "=" * 20)
     print(examName)
     print("请选择科目")
     for i in range(len(s)):
         print(str(i + 1) + "." + s[i]['subjectName'], "(" + s[i]['paperId'] + " | " + s[i]['subjectCode'] + ")",
-              str(s[i]['userScore']) + "/" + str(s[i]['standardScore']))
+              str(s[i]['userScore']) + "/" + str(s[i]['standardScore']), end=" ")
+        if subjectRank[s[i]['subjectCode']]['rank']:
+            print("| 预计排名：", "第" + str(math.ceil(subjectRank[s[i]['subjectCode']]['rank'])) + "名", end=" ")
+        if subjectRank[s[i]['subjectCode']]['classTotal'] and subjectRank[s[i]['subjectCode']]['gradeTotal']:
+            print("| 参考人数：", str(subjectRank[s[i]['subjectCode']]['classTotal']) + "/" + str(
+                subjectRank[s[i]['subjectCode']]['gradeTotal']), end="")
+        print()
     print("=" * 20, "\n")
     choice = input("请输入科目对应数字，其他键结束操作：")
     if not choice.isdigit():
@@ -403,6 +456,7 @@ def main():
                 print("题号：" + j['disTitleNumber'])
             except:
                 print("解析失败，可能是由于试卷未入库")
+                print("所有生成的文件均已保存至", exportPath)
                 return
             print("题目：" + j['content']['accessories'][0]['desc'])
             print("题目-图片：" + j['topicImgUrl'])
