@@ -21,7 +21,7 @@ from qfluentwidgets import FluentIcon as FIF
 from qframelesswindow import *
 from selenium import webdriver
 
-VERSION = "v2.0-PreRelease"
+VERSION = "v2.1-PreRelease"
 FILEDIR = "C:/ZhiXueHacker"
 
 # 创建图标
@@ -618,6 +618,7 @@ class MainUi(QFrame):
         self.subjectRank = None
         self.paperIndex = None
         self.username = None
+        self.loginState = False
 
         if os.path.exists(FILEDIR + "/cookies.json"):
             self.getTokenThread.start()
@@ -660,17 +661,40 @@ class MainUi(QFrame):
         self.PrimaryPushButton_3.setEnabled(False)
 
     def login(self):
-        self.PrimaryPushButton.setEnabled(False)
-        self.loginThread.start()
-        InfoBar.info(
-            title='登录',
-            content="请在打开的浏览器中完成登录。",
-            orient=Qt.Horizontal,
-            isClosable=False,
-            position=InfoBarPosition.BOTTOM,
-            duration=3000,
-            parent=self
-        )
+        if not self.loginState:
+            self.PrimaryPushButton.setEnabled(False)
+            self.loginThread.start()
+            InfoBar.info(
+                title='登录',
+                content="请在打开的浏览器中完成登录。",
+                orient=Qt.Horizontal,
+                isClosable=False,
+                position=InfoBarPosition.BOTTOM,
+                duration=3000,
+                parent=self
+            )
+        else:
+            os.remove(FILEDIR + "/cookies.json")
+            self.loginState = False
+            self.PrimaryPushButton.setText("登录")
+            self.CaptionLabel_3.setText("未登录")
+            self.ListWidget.clearSelection()
+            self.ListWidget.clear()
+            self.ListWidget_2.clearSelection()
+            self.ListWidget_2.clear()
+            self.PrimaryPushButton_3.setEnabled(False)
+            self.PushButton_2.setEnabled(False)
+            self.PrimaryPushButton_2.setEnabled(False)
+            self.fetchPage = 1
+            InfoBar.success(
+                title='退出登录成功',
+                content="已清除Cookies并退出登录。",
+                orient=Qt.Horizontal,
+                isClosable=False,
+                position=InfoBarPosition.BOTTOM,
+                duration=3000,
+                parent=self
+            )
 
     def fetch(self):
         self.PushButton_2.setEnabled(False)
@@ -736,6 +760,8 @@ class MainUi(QFrame):
                 duration=3000,
                 parent=self
             )
+            self.loginState = True
+            self.PrimaryPushButton.setText("退出登录")
         else:
             InfoBar.error(
                 title='登录失败',
@@ -746,7 +772,7 @@ class MainUi(QFrame):
                 duration=5000,
                 parent=self
             )
-            self.PrimaryPushButton.setEnabled(True)
+        self.PrimaryPushButton.setEnabled(True)
 
     def fetchExamCallback(self, success, info, examTmpList, hasNext):
         if success:
