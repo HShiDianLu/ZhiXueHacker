@@ -21,7 +21,7 @@ from qfluentwidgets import FluentIcon as FIF
 from qframelesswindow import *
 from selenium import webdriver
 
-VERSION = "v2.1-PreRelease"
+VERSION = "v2.2"
 FILEDIR = "C:/ZhiXueHacker"
 
 # 创建图标
@@ -266,7 +266,8 @@ class FetchPaper(QThread):
                 url="https://www.zhixue.com/zhixuebao/report/exam/getReportMain?examId=" + self.examId,
                 headers={"XToken": self.token}).json()['result']['paperList']
             for i in paperList:
-                subjectRank[i['subjectCode']] = {'rank': None, 'classTotal': None, 'gradeTotal': None}
+                subjectRank[i['subjectCode']] = {'rank': None, 'classTotal': None, 'gradeTotal': None,
+                                                 'rankMulti': None}
             try:
                 s = \
                     requests.get(
@@ -274,7 +275,7 @@ class FetchPaper(QThread):
                         headers={"XToken": self.token}).json()['result']['list']
                 print(s)
                 for i in s:
-                    subjectRank[i['subjectCode']]['rank'] = i['myRank']
+                    subjectRank[i['subjectCode']]['rankMulti'] = i['myRank']
                 print(subjectRank)
             except:
                 print("排名获取失败")
@@ -306,7 +307,7 @@ class FetchRank(QThread):
             for j in s[0]['dataList']:
                 if j['id'] == self.paperId:
                     try:
-                        rank = math.ceil(self.subjectRank[self.subjectCode]['rank'] / 100 * j['totalNum'])
+                        rank = math.ceil(self.subjectRank[self.subjectCode]['rankMulti'] / 100 * j['totalNum'])
                         self.subjectRank[self.subjectCode]['rank'] = min(max(rank, 1), j['totalNum'])
                     except:
                         pass
