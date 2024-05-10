@@ -334,7 +334,7 @@ class FetchRank(QThread):
                 cookies={"JSESSIONID": self.JSESSIONID, "tlsysSessionId": self.tlsysSessionId}).text
             soup = BeautifulSoup(s, "html.parser")
             js_tag = soup.find_all(name="script")
-            detail = None
+            detail = []
             for i in js_tag:
                 for j in i.text.split("\n"):
                     if 'hisQueParseDetail' in j:
@@ -342,7 +342,10 @@ class FetchRank(QThread):
                             j.replace("    var hisQueParseDetail = ", "").rstrip(";").replace("true", "True").replace(
                                 "false",
                                 "False"))
-            self.problemCallback.emit(True, "", detail)
+            if not detail:
+                self.problemCallback.emit(False, "无法找到变量 hisQueParseDetail。\n这可能是由于登录过期。请重新登录。", [])
+            else:
+                self.problemCallback.emit(True, "", detail)
         except Exception as e:
             self.problemCallback.emit(False, str(e), [])
 
@@ -626,6 +629,21 @@ class MainUi(QFrame):
         else:
             self.PrimaryPushButton.setEnabled(True)
 
+        # w = InfoBar(
+        #     icon=InfoBarIcon.INFORMATION,
+        #     title='成绩发布',
+        #     content="-考试中的-学科已出分。",
+        #     orient=Qt.Vertical,
+        #     isClosable=True,
+        #     position=InfoBarPosition.BOTTOM_RIGHT,
+        #     duration=-1,
+        #     parent=self
+        # )
+        # pb = PushButton('查看详情')
+        # w.addWidget(pb)
+        # pb.clicked.connect(lambda link: QDesktopServices.openUrl(QUrl.fromLocalFile(self.downloadPath)))
+        # w.show()
+
         self.retranslateUi()
         QMetaObject.connectSlotsByName(self)
 
@@ -689,7 +707,7 @@ class MainUi(QFrame):
             self.fetchPage = 1
             InfoBar.success(
                 title='退出登录成功',
-                content="已清除Cookies并退出登录。",
+                content="已清除 Cookies 并退出登录。",
                 orient=Qt.Horizontal,
                 isClosable=False,
                 position=InfoBarPosition.BOTTOM,
