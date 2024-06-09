@@ -1,0 +1,419 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Form</class>
+ <widget class="QWidget" name="Form">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>750</width>
+    <height>585</height>
+   </rect>
+  </property>
+  <property name="font">
+   <font>
+    <family>Microsoft JhengHei UI</family>
+    <pointsize>10</pointsize>
+   </font>
+  </property>
+  <property name="windowTitle">
+   <string>ZhiXueHacker</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true"/>
+  </property>
+  <layout class="QGridLayout" name="gridLayout_2">
+   <property name="leftMargin">
+    <number>20</number>
+   </property>
+   <property name="topMargin">
+    <number>40</number>
+   </property>
+   <property name="rightMargin">
+    <number>20</number>
+   </property>
+   <property name="bottomMargin">
+    <number>15</number>
+   </property>
+   <property name="horizontalSpacing">
+    <number>70</number>
+   </property>
+   <item row="6" column="0" colspan="2">
+    <widget class="TreeWidget" name="TreeWidget">
+     <property name="animated">
+      <bool>true</bool>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <attribute name="headerVisible">
+      <bool>true</bool>
+     </attribute>
+     <attribute name="headerCascadingSectionResizes">
+      <bool>false</bool>
+     </attribute>
+     <attribute name="headerMinimumSectionSize">
+      <number>30</number>
+     </attribute>
+     <attribute name="headerDefaultSectionSize">
+      <number>125</number>
+     </attribute>
+     <column>
+      <property name="text">
+       <string>题号</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>得分</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>评分方式</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>批阅教师</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>批阅时间</string>
+      </property>
+     </column>
+     <item>
+      <property name="text">
+       <string>15</string>
+      </property>
+      <property name="text">
+       <string>0.0/3.0</string>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+      <item>
+       <property name="text">
+        <string>15.1</string>
+       </property>
+       <property name="text">
+        <string>0.0</string>
+       </property>
+       <property name="text">
+        <string>marking1</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <item>
+        <property name="text">
+         <string>一评</string>
+        </property>
+        <property name="text">
+         <string>0.0</string>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+        <property name="text">
+         <string>A (marking1)</string>
+        </property>
+        <property name="text">
+         <string>1145-01-04 19:19:18</string>
+        </property>
+       </item>
+      </item>
+     </item>
+     <item>
+      <property name="text">
+       <string>16</string>
+      </property>
+      <property name="text">
+       <string>10.0/10.0</string>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+      <item>
+       <property name="text">
+        <string>16.1</string>
+       </property>
+       <property name="text">
+        <string>5.0</string>
+       </property>
+       <property name="text">
+        <string>marking1</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <item>
+        <property name="text">
+         <string>一评</string>
+        </property>
+        <property name="text">
+         <string>5.0</string>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+        <property name="text">
+         <string>B (marking1)</string>
+        </property>
+        <property name="text">
+         <string>1145-01-04 19:19:18</string>
+        </property>
+       </item>
+      </item>
+      <item>
+       <property name="text">
+        <string>16.2</string>
+       </property>
+       <property name="text">
+        <string>5.0</string>
+       </property>
+       <property name="text">
+        <string>marking1</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <item>
+        <property name="text">
+         <string>一评</string>
+        </property>
+        <property name="text">
+         <string>5.0</string>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+        <property name="text">
+         <string>C (marking1)</string>
+        </property>
+        <property name="text">
+         <string>1145-01-04 19:19:18</string>
+        </property>
+       </item>
+      </item>
+     </item>
+     <item>
+      <property name="text">
+       <string>23</string>
+      </property>
+      <property name="text">
+       <string>41.5/50.0</string>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+      <item>
+       <property name="text">
+        <string>23.1</string>
+       </property>
+       <property name="text">
+        <string>41.5</string>
+       </property>
+       <property name="text">
+        <string>average</string>
+       </property>
+       <item>
+        <property name="text">
+         <string>一评</string>
+        </property>
+        <property name="text">
+         <string>40.0</string>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+        <property name="text">
+         <string>D (marking2)</string>
+        </property>
+        <property name="text">
+         <string>1145-01-04 19:19:18</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>二评</string>
+        </property>
+        <property name="text">
+         <string>43.0</string>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+        <property name="text">
+         <string>E (marking1)</string>
+        </property>
+        <property name="text">
+         <string>1145-01-04 19:19:18</string>
+        </property>
+       </item>
+      </item>
+     </item>
+    </widget>
+   </item>
+   <item row="9" column="0" colspan="2">
+    <layout class="QVBoxLayout" name="verticalLayout_3">
+     <property name="spacing">
+      <number>2</number>
+     </property>
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <item>
+      <widget class="StrongBodyLabel" name="StrongBodyLabel">
+       <property name="font">
+        <font>
+         <family>Microsoft YaHei UI</family>
+         <pointsize>10</pointsize>
+         <weight>75</weight>
+         <bold>true</bold>
+        </font>
+       </property>
+       <property name="text">
+        <string>Copyright © 2024 HShiDianLu. All Rights Reserved.</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="CaptionLabel" name="CaptionLabel_2">
+       <property name="font">
+        <font>
+         <family>Microsoft YaHei UI</family>
+         <pointsize>10</pointsize>
+         <weight>50</weight>
+         <bold>false</bold>
+        </font>
+       </property>
+       <property name="text">
+        <string>Version -</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item row="7" column="0" colspan="2">
+    <spacer name="verticalSpacer_5">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeType">
+      <enum>QSizePolicy::Fixed</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>10</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+   <item row="4" column="0" colspan="2">
+    <layout class="QGridLayout" name="gridLayout">
+     <item row="0" column="0">
+      <layout class="QVBoxLayout" name="verticalLayout_4">
+       <property name="spacing">
+        <number>0</number>
+       </property>
+       <item>
+        <widget class="TitleLabel" name="TitleLabel">
+         <property name="text">
+          <string>学科得分详情</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="CaptionLabel" name="CaptionLabel">
+         <property name="text">
+          <string>当前学科：无</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item row="0" column="1">
+      <widget class="CaptionLabel" name="CaptionLabel_3">
+       <property name="text">
+        <string>-同学</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item row="5" column="0" colspan="2">
+    <spacer name="verticalSpacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeType">
+      <enum>QSizePolicy::Fixed</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>10</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>CaptionLabel</class>
+   <extends>QLabel</extends>
+   <header>qfluentwidgets</header>
+  </customwidget>
+  <customwidget>
+   <class>StrongBodyLabel</class>
+   <extends>QLabel</extends>
+   <header>qfluentwidgets</header>
+  </customwidget>
+  <customwidget>
+   <class>TitleLabel</class>
+   <extends>QLabel</extends>
+   <header>qfluentwidgets</header>
+  </customwidget>
+  <customwidget>
+   <class>TreeWidget</class>
+   <extends>QTreeWidget</extends>
+   <header>qfluentwidgets</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>
