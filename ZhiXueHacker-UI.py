@@ -6,6 +6,7 @@ import ctypes
 import hashlib
 import math
 import os
+import time
 import tkinter
 from tkinter import filedialog
 from configparser import *
@@ -21,7 +22,7 @@ from qfluentwidgets import FluentIcon as FIF
 from qframelesswindow import *
 from selenium import webdriver
 
-VERSION = "v2.2"
+VERSION = "v3.0-PreRelease"
 FILEDIR = "C:/ZhiXueHacker"
 
 # 创建图标
@@ -183,7 +184,9 @@ class Login(QThread):
 
     def run(self):
         try:
-            browser = webdriver.Edge()
+            options = webdriver.EdgeOptions()
+            options.add_experimental_option('excludeSwitches', ['enable-logging'])
+            browser = webdriver.Edge(options=options)
             browser.get("https://www.zhixue.com/login.html")
             print("请在网页端进行登录")
             while browser.current_url == "https://www.zhixue.com/login.html":
@@ -287,6 +290,7 @@ class FetchPaper(QThread):
 class FetchRank(QThread):
     callback = pyqtSignal(bool, str, dict)
     sheetCallback = pyqtSignal(bool, str, list)
+    scoreDetailCallback = pyqtSignal(bool, str, list)
     problemCallback = pyqtSignal(bool, str, list)
 
     def setPat(self, token, examId, paperId, subjectRank, subjectCode, JSESSIONID, tlsysSessionId):
@@ -330,6 +334,17 @@ class FetchRank(QThread):
             self.sheetCallback.emit(False, str(e), [])
         try:
             s = requests.get(
+                "https://www.zhixue.com/zhixuebao/report/checksheet/?examId=" + self.examId + "&paperId=" + self.paperId,
+                headers={"XToken": self.token}).json()['result']
+            print(s)
+            scoreDetail = \
+                eval(s['sheetDatas'].replace("true", "True").replace("false", "False").replace("null", "None"))[
+                    'userAnswerRecordDTO']['answerRecordDetails']
+            self.scoreDetailCallback.emit(True, "", scoreDetail)
+        except Exception as e:
+            self.scoreDetailCallback.emit(False, str(e), [])
+        try:
+            s = requests.get(
                 "https://www.zhixue.com/zhixuebao/zhixuebao/transcript/analysis/main/?paperId=" + self.paperId + "&examId=" + self.examId + "&token=" + self.token + "&subjectCode=" + self.subjectCode,
                 cookies={"JSESSIONID": self.JSESSIONID, "tlsysSessionId": self.tlsysSessionId}).text
             soup = BeautifulSoup(s, "html.parser")
@@ -343,7 +358,8 @@ class FetchRank(QThread):
                                 "false",
                                 "False"))
             if not detail:
-                self.problemCallback.emit(False, "无法找到变量 hisQueParseDetail。\n这可能是由于登录过期。请重新登录。", [])
+                self.problemCallback.emit(False, "无法找到变量 hisQueParseDetail。\n这可能是由于登录过期。请重新登录。",
+                                          [])
             else:
                 self.problemCallback.emit(True, "", detail)
         except Exception as e:
@@ -478,6 +494,7 @@ def displayError(info):
 
 class MainUi(QFrame):
     mainSingal = pyqtSignal(list, int, list, int, dict, str)
+    logoutSignal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -499,6 +516,12 @@ class MainUi(QFrame):
         self.PrimaryPushButton = PrimaryPushButton(self)
         self.PrimaryPushButton.setObjectName("PrimaryPushButton")
         self.horizontalLayout.addWidget(self.PrimaryPushButton)
+        self.horizontalSpacer_3 = QSpacerItem(10, 20, QSizePolicy.Fixed, QSizePolicy.Minimum)
+        self.horizontalLayout.addItem(self.horizontalSpacer_3)
+        self.ToolButton = ToolButton(self)
+        self.ToolButton.setObjectName("ToolButton")
+        self.horizontalLayout.addWidget(self.ToolButton)
+        self.ToolButton.setIcon(FIF.SYNC)
         spacerItem1 = QSpacerItem(30, 20, QSizePolicy.Fixed, QSizePolicy.Minimum)
         self.horizontalLayout.addItem(spacerItem1)
         self.CaptionLabel_3 = CaptionLabel(self)
@@ -604,6 +627,7 @@ class MainUi(QFrame):
         self.PrimaryPushButton_3.setEnabled(False)
         self.PushButton_2.setEnabled(False)
         self.PrimaryPushButton_2.setEnabled(False)
+        self.ToolButton.setEnabled(False)
         self.fetchExamThread = FetchExam()
         self.fetchExamThread.callback.connect(self.fetchExamCallback)
         self.fetchPage = 1
@@ -616,6 +640,7 @@ class MainUi(QFrame):
         self.fetchRankThread = FetchRank()
         self.fetchRankThread.callback.connect(self.emitDetail)
         self.ListWidget_2.clicked.connect(self.clickPaper)
+        self.ToolButton.clicked.connect(self.refresh)
         self.examList = []
         self.paperList = []
         self.examIndex = None
@@ -623,6 +648,7 @@ class MainUi(QFrame):
         self.paperIndex = None
         self.username = None
         self.loginState = False
+        self.doFetchPaper = True
 
         if os.path.exists(FILEDIR + "/cookies.json"):
             self.getTokenThread.start()
@@ -704,7 +730,9 @@ class MainUi(QFrame):
             self.PrimaryPushButton_3.setEnabled(False)
             self.PushButton_2.setEnabled(False)
             self.PrimaryPushButton_2.setEnabled(False)
+            self.ToolButton.setEnabled(False)
             self.fetchPage = 1
+            self.logoutSignal.emit()
             InfoBar.success(
                 title='退出登录成功',
                 content="已清除 Cookies 并退出登录。",
@@ -746,8 +774,14 @@ class MainUi(QFrame):
                 parent=self
             )
 
+    def refresh(self):
+        self.ToolButton.setEnabled(False)
+        self.doFetchPaper = False
+        self.getTokenThread.start()
+
     def loginCallback(self, success, info):
         if success:
+            self.doFetchPaper = True
             self.getTokenThread.start()
         else:
             self.PrimaryPushButton.setEnabled(True)
@@ -768,8 +802,10 @@ class MainUi(QFrame):
             self.token = token
             self.username = username
             self.CaptionLabel_3.setText("你好，" + self.username + "同学")
-            self.fetchExamThread.setPat(self.token, 1)
-            self.fetchExamThread.start()
+            if self.doFetchPaper:
+                self.fetchExamThread.setPat(self.token, 1)
+                self.fetchExamThread.start()
+            self.ToolButton.setEnabled(True)
             InfoBar.success(
                 title='登录成功',
                 content="当前用户：" + self.username,
@@ -782,6 +818,19 @@ class MainUi(QFrame):
             self.loginState = True
             self.PrimaryPushButton.setText("退出登录")
         else:
+            self.loginState = False
+            self.PrimaryPushButton.setText("登录")
+            self.CaptionLabel_3.setText("未登录")
+            self.ListWidget.clearSelection()
+            self.ListWidget.clear()
+            self.ListWidget_2.clearSelection()
+            self.ListWidget_2.clear()
+            self.PrimaryPushButton_3.setEnabled(False)
+            self.PushButton_2.setEnabled(False)
+            self.PrimaryPushButton_2.setEnabled(False)
+            self.ToolButton.setEnabled(False)
+            self.fetchPage = 1
+            self.logoutSignal.emit()
             InfoBar.error(
                 title='登录失败',
                 content="请重新登录。\n" + "错误信息：" + displayError(JSESSIONID),
@@ -858,20 +907,57 @@ class DetailUi(QWidget):
         self.gridLayout_2.setContentsMargins(20, 40, 20, 15)
         self.gridLayout_2.setHorizontalSpacing(70)
         self.gridLayout_2.setObjectName("gridLayout_2")
+        spacerItem = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.gridLayout_2.addItem(spacerItem, 5, 0, 1, 2)
+        self.gridLayout = QGridLayout()
+        self.gridLayout.setObjectName("gridLayout")
+        self.verticalLayout_4 = QVBoxLayout()
+        self.verticalLayout_4.setSpacing(0)
+        self.verticalLayout_4.setObjectName("verticalLayout_4")
+        self.TitleLabel = TitleLabel(self)
+        self.TitleLabel.setObjectName("TitleLabel")
+        self.verticalLayout_4.addWidget(self.TitleLabel)
+        self.CaptionLabel = CaptionLabel(self)
+        self.CaptionLabel.setObjectName("CaptionLabel")
+        self.verticalLayout_4.addWidget(self.CaptionLabel)
+        self.gridLayout.addLayout(self.verticalLayout_4, 0, 0, 1, 1)
+        self.CaptionLabel_3 = CaptionLabel(self)
+        self.CaptionLabel_3.setAlignment(Qt.AlignRight | Qt.AlignTrailing | Qt.AlignVCenter)
+        self.CaptionLabel_3.setObjectName("CaptionLabel_3")
+        self.gridLayout.addWidget(self.CaptionLabel_3, 0, 1, 1, 1)
+        self.gridLayout_2.addLayout(self.gridLayout, 4, 0, 1, 2)
+        self.verticalLayout_3 = QVBoxLayout()
+        self.verticalLayout_3.setContentsMargins(-1, 0, -1, -1)
+        self.verticalLayout_3.setSpacing(2)
+        self.verticalLayout_3.setObjectName("verticalLayout_3")
+        self.StrongBodyLabel = StrongBodyLabel(self)
+        font = QFont()
+        font.setFamily("Microsoft YaHei UI")
+        font.setPointSize(10)
+        font.setBold(True)
+        font.setWeight(75)
+        self.StrongBodyLabel.setFont(font)
+        self.StrongBodyLabel.setAlignment(Qt.AlignLeading | Qt.AlignLeft | Qt.AlignVCenter)
+        self.StrongBodyLabel.setObjectName("StrongBodyLabel")
+        self.verticalLayout_3.addWidget(self.StrongBodyLabel)
+        self.CaptionLabel_2 = CaptionLabel(self)
+        font = QFont()
+        font.setFamily("Microsoft YaHei UI")
+        font.setPointSize(10)
+        font.setBold(False)
+        font.setWeight(50)
+        self.CaptionLabel_2.setFont(font)
+        self.CaptionLabel_2.setAlignment(Qt.AlignLeading | Qt.AlignLeft | Qt.AlignVCenter)
+        self.CaptionLabel_2.setObjectName("CaptionLabel_2")
+        self.verticalLayout_3.addWidget(self.CaptionLabel_2)
+        self.gridLayout_2.addLayout(self.verticalLayout_3, 12, 0, 1, 2)
         self.verticalLayout = QVBoxLayout()
         self.verticalLayout.setObjectName("verticalLayout")
         self.StrongBodyLabel_2 = StrongBodyLabel(self)
         self.StrongBodyLabel_2.setObjectName("StrongBodyLabel_2")
         self.verticalLayout.addWidget(self.StrongBodyLabel_2)
-        spacerItem = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        self.verticalLayout.addItem(spacerItem)
-        # self.CaptionLabel_4 = CaptionLabel(self)
-        # self.CaptionLabel_4.setWordWrap(False)
-        # self.CaptionLabel_4.setObjectName("CaptionLabel_4")
-        # self.verticalLayout.addWidget(self.CaptionLabel_4)
-        # self.BodyLabel = BodyLabel(self)
-        # self.BodyLabel.setObjectName("BodyLabel")
-        # self.verticalLayout.addWidget(self.BodyLabel)
+        spacerItem1 = QSpacerItem(20, 13, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.verticalLayout.addItem(spacerItem1)
         self.ElevatedCardWidget = ElevatedCardWidget(self)
         self.ElevatedCardWidget.setObjectName("ElevatedCardWidget")
         self.verticalLayout_2 = QVBoxLayout(self.ElevatedCardWidget)
@@ -892,36 +978,286 @@ class DetailUi(QWidget):
         self.BodyLabel_5.setObjectName("BodyLabel_5")
         self.verticalLayout_2.addWidget(self.BodyLabel_5)
         self.verticalLayout.addWidget(self.ElevatedCardWidget)
-        spacerItem1 = QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        self.verticalLayout.addItem(spacerItem1)
+        spacerItem2 = QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.verticalLayout.addItem(spacerItem2)
         self.StrongBodyLabel_3 = StrongBodyLabel(self)
         self.StrongBodyLabel_3.setObjectName("StrongBodyLabel_3")
         self.verticalLayout.addWidget(self.StrongBodyLabel_3)
-        spacerItem2 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        self.verticalLayout.addItem(spacerItem2)
+        spacerItem3 = QSpacerItem(20, 13, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.verticalLayout.addItem(spacerItem3)
         self.ListWidget_2 = ListWidget(self)
         self.ListWidget_2.setSelectionMode(QAbstractItemView.MultiSelection)
         self.ListWidget_2.setObjectName("ListWidget_2")
         self.verticalLayout.addWidget(self.ListWidget_2)
-        spacerItem3 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        self.verticalLayout.addItem(spacerItem3)
+        spacerItem4 = QSpacerItem(20, 13, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.verticalLayout.addItem(spacerItem4)
+        spacerItem5 = QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        self.verticalLayout.addItem(spacerItem5)
         self.horizontalLayout_2 = QHBoxLayout()
         self.horizontalLayout_2.setObjectName("horizontalLayout_2")
         self.PushButton = PushButton(self)
         self.PushButton.setObjectName("PushButton")
         self.horizontalLayout_2.addWidget(self.PushButton)
-        spacerItem4 = QSpacerItem(10, 20, QSizePolicy.Fixed, QSizePolicy.Minimum)
-        self.horizontalLayout_2.addItem(spacerItem4)
+        spacerItem6 = QSpacerItem(10, 20, QSizePolicy.Fixed, QSizePolicy.Minimum)
+        self.horizontalLayout_2.addItem(spacerItem6)
         self.PushButton_3 = PushButton(self)
         self.PushButton_3.setObjectName("PushButton_3")
         self.horizontalLayout_2.addWidget(self.PushButton_3)
-        spacerItem5 = QSpacerItem(10, 20, QSizePolicy.Fixed, QSizePolicy.Minimum)
-        self.horizontalLayout_2.addItem(spacerItem5)
+        spacerItem7 = QSpacerItem(10, 20, QSizePolicy.Fixed, QSizePolicy.Minimum)
+        self.horizontalLayout_2.addItem(spacerItem7)
         self.PrimaryPushButton_2 = PrimaryPushButton(self)
         self.PrimaryPushButton_2.setObjectName("PrimaryPushButton_2")
         self.horizontalLayout_2.addWidget(self.PrimaryPushButton_2)
         self.verticalLayout.addLayout(self.horizontalLayout_2)
-        self.gridLayout_2.addLayout(self.verticalLayout, 6, 0, 7, 1)
+        self.gridLayout_2.addLayout(self.verticalLayout, 7, 0, 2, 2)
+        spacerItem8 = QSpacerItem(12, 21, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        self.gridLayout_2.addItem(spacerItem8, 9, 0, 1, 1)
+        spacerItem9 = QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        self.gridLayout_2.addItem(spacerItem9, 11, 0, 1, 1)
+
+        self.examList = []
+        self.paperList = []
+        self.examIndex = None
+        self.subjectRank = None
+        self.paperIndex = None
+        self.username = None
+        self.problemList = None
+        self.downloadPath = None
+        self.PushButton.setEnabled(False)
+        self.PushButton_3.setEnabled(False)
+        self.PrimaryPushButton_2.setEnabled(False)
+        self.PushButton.clicked.connect(self.selectAll)
+        self.PushButton_3.clicked.connect(self.selectNone)
+        self.ListWidget_2.clicked.connect(self.clickSheet)
+        self.PrimaryPushButton_2.clicked.connect(self.download)
+        self.downloadSheetThread = DownloadSheet()
+        self.downloadSheetThread.callback.connect(self.downloadSheetCallback)
+
+        self.retranslateUi()
+        QMetaObject.connectSlotsByName(self)
+
+    def retranslateUi(self):
+        _translate = QCoreApplication.translate
+        self.setWindowTitle(_translate("Form", "ZhiXueHacker"))
+        self.StrongBodyLabel_2.setText(_translate("Form", "科目详情"))
+        self.StrongBodyLabel_3.setText(_translate("Form", "答题卡下载"))
+        self.PushButton.setText(_translate("Form", "全选"))
+        self.PushButton_3.setText(_translate("Form", "全不选"))
+        self.PrimaryPushButton_2.setText(_translate("Form", "下载"))
+        self.TitleLabel.setText(_translate("Form", "学科概览"))
+        self.CaptionLabel.setText(_translate("Form", "当前学科：无 | 当前学科：无"))
+        self.CaptionLabel_3.setText(_translate("Form", ""))
+        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024 HShiDianLu. All Rights Reserved."))
+        self.CaptionLabel_2.setText(_translate("Form", "Version " + VERSION))
+
+    def activePage(self, examList, examIndex, paperList, paperIndex, subjectRank, username):
+        self.examList = examList
+        self.examIndex = examIndex
+        self.paperList = paperList
+        self.paperIndex = paperIndex
+        self.subjectRank = subjectRank
+        self.username = username
+        self.CaptionLabel_3.setText(username + "同学")
+        self.ListWidget_2.clearSelection()
+        self.ListWidget_2.clear()
+        self.PushButton.setEnabled(False)
+        self.PushButton_3.setEnabled(False)
+        self.PrimaryPushButton_2.setEnabled(False)
+        print(self.paperIndex)
+        self.CaptionLabel.setText(
+            "当前考试：" + examList[examIndex]['examName'] + " | 当前学科：" + self.paperList[self.paperIndex][
+                'subjectName'])
+        self.downloadPath = config['path'] + "/" + self.examList[self.examIndex]['examName'] + " - " + \
+                            self.paperList[self.paperIndex]['subjectName']
+        # self.BodyLabel.setText("学科：" + paperList[paperIndex]['subjectName'] + "\n\n"
+        #                                                                         "ID：" + paperList[paperIndex][
+        #                            'paperId'] + "-" + paperList[paperIndex]['subjectCode'] + "\n\n"
+        #                                                                                      "分数：" + str(
+        #     paperList[paperIndex]['userScore']) + "/" + str(paperList[paperIndex]['standardScore']) + "\n\n"
+        #                                                                                               "参考人数（班级/学校）：" + str(
+        #     subjectRank['classTotal']) + "/" + str(subjectRank['gradeTotal']) + "\n\n"
+        #                                                                         "预计排名（班级）：" + str(
+        #     subjectRank['rank']))
+        self.BodyLabel.setText("学科：" + paperList[paperIndex]['subjectName'])
+        self.BodyLabel_2.setText("ID：" + paperList[paperIndex]['paperId'] + "-" + paperList[paperIndex]['subjectCode'])
+        self.BodyLabel_3.setText(
+            "分数：" + str(paperList[paperIndex]['userScore']) + "/" + str(paperList[paperIndex]['standardScore']))
+        self.BodyLabel_4.setText(
+            "参考人数（班级/学校）：" + str(subjectRank['classTotal']) + "/" + str(subjectRank['gradeTotal']))
+        if subjectRank['rank']:
+            InfoBar.warning(
+                title='排名功能警告',
+                content="排名仅供参考，可能会有1名之差。具体请以教师端排名为准。",
+                orient=Qt.Horizontal,
+                isClosable=False,
+                position=InfoBarPosition.BOTTOM,
+                duration=5000,
+                parent=self
+            )
+            self.BodyLabel_5.setText("班级排名（预计）：" + str(subjectRank['rank']))
+        else:
+            InfoBar.error(
+                title='排名获取失败',
+                content="无法获取排名。这可能是由于试卷少于三科或学校未开启该功能。",
+                orient=Qt.Horizontal,
+                isClosable=False,
+                position=InfoBarPosition.BOTTOM,
+                duration=5000,
+                parent=self
+            )
+            self.BodyLabel_5.setText("班级排名（预计）：无")
+
+    def logout(self):
+        self.ListWidget_2.clearSelection()
+        self.ListWidget_2.clear()
+        self.examList = []
+        self.paperList = []
+        self.examIndex = None
+        self.subjectRank = None
+        self.paperIndex = None
+        self.username = None
+        self.PushButton.setEnabled(False)
+        self.PushButton_3.setEnabled(False)
+        self.PrimaryPushButton_2.setEnabled(False)
+        self.problemList = None
+        self.downloadPath = None
+        self.BodyLabel.setText("")
+        self.BodyLabel_2.setText("")
+        self.BodyLabel_3.setText("")
+        self.BodyLabel_4.setText("")
+        self.BodyLabel_5.setText("")
+        self.CaptionLabel.setText("当前考试：无 | 当前学科：无")
+        self.CaptionLabel_3.setText("")
+
+    def clickSheet(self):
+        if len(self.ListWidget_2.selectedIndexes()) != 0:
+            self.PrimaryPushButton_2.setEnabled(True)
+        else:
+            self.PrimaryPushButton_2.setEnabled(False)
+
+    def selectAll(self):
+        for i in range(self.ListWidget_2.count()):
+            self.ListWidget_2.item(i).setSelected(True)
+        self.PrimaryPushButton_2.setEnabled(True)
+
+    def selectNone(self):
+        self.ListWidget_2.clearSelection()
+        self.PrimaryPushButton_2.setEnabled(False)
+
+    def download(self):
+        urls = []
+        self.PrimaryPushButton_2.setEnabled(False)
+        for i in self.ListWidget_2.selectedItems():
+            urls.append(i.text())
+        self.downloadSheetThread.setPat(self.downloadPath, urls)
+        self.downloadSheetThread.start()
+
+    def sheetCallback(self, success, info, sheetList):
+        if success:
+            for i in sheetList:
+                self.ListWidget_2.addItem(QListWidgetItem(i))
+            self.PushButton.setEnabled(True)
+            self.PushButton_3.setEnabled(True)
+        else:
+            InfoBar.error(
+                title='答题卡获取失败',
+                content="错误信息：" + displayError(info),
+                orient=Qt.Horizontal,
+                isClosable=False,
+                position=InfoBarPosition.BOTTOM,
+                duration=5000,
+                parent=self
+            )
+
+    def downloadSheetCallback(self, success, info):
+        self.PrimaryPushButton_2.setEnabled(True)
+        if success:
+            w = InfoBar(
+                icon=InfoBarIcon.INFORMATION,
+                title='下载成功',
+                content="答题卡已保存至 " + self.downloadPath + " 目录下。",
+                orient=Qt.Vertical,
+                isClosable=True,
+                position=InfoBarPosition.BOTTOM,
+                duration=-1,
+                parent=self
+            )
+            pb = PushButton('打开文件夹')
+            w.addWidget(pb)
+            pb.clicked.connect(lambda link: QDesktopServices.openUrl(QUrl.fromLocalFile(self.downloadPath)))
+            w.show()
+        else:
+            InfoBar.error(
+                title='下载失败',
+                content="错误信息：" + displayError(info),
+                orient=Qt.Horizontal,
+                isClosable=False,
+                position=InfoBarPosition.BOTTOM,
+                duration=5000,
+                parent=self
+            )
+
+
+class DownloadUI(QFrame):
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("Download")
+        # self.resize(750, 599)
+        font = QFont()
+        font.setFamily("Microsoft JhengHei UI")
+        font.setPointSize(10)
+        self.setFont(font)
+        # self.setStyleSheet("")
+        self.gridLayout_2 = QGridLayout(self)
+        self.gridLayout_2.setContentsMargins(20, 40, 20, 15)
+        self.gridLayout_2.setHorizontalSpacing(70)
+        self.gridLayout_2.setObjectName("gridLayout_2")
+        spacerItem = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.gridLayout_2.addItem(spacerItem, 5, 0, 1, 2)
+        self.verticalLayout_3 = QVBoxLayout()
+        self.verticalLayout_3.setContentsMargins(-1, 0, -1, -1)
+        self.verticalLayout_3.setSpacing(2)
+        self.verticalLayout_3.setObjectName("verticalLayout_3")
+        self.StrongBodyLabel = StrongBodyLabel(self)
+        font = QFont()
+        font.setFamily("Microsoft YaHei UI")
+        font.setPointSize(10)
+        font.setBold(True)
+        font.setWeight(75)
+        self.StrongBodyLabel.setFont(font)
+        self.StrongBodyLabel.setAlignment(Qt.AlignLeading | Qt.AlignLeft | Qt.AlignVCenter)
+        self.StrongBodyLabel.setObjectName("StrongBodyLabel")
+        self.verticalLayout_3.addWidget(self.StrongBodyLabel)
+        self.CaptionLabel_2 = CaptionLabel(self)
+        font = QFont()
+        font.setFamily("Microsoft YaHei UI")
+        font.setPointSize(10)
+        font.setBold(False)
+        font.setWeight(50)
+        self.CaptionLabel_2.setFont(font)
+        self.CaptionLabel_2.setAlignment(Qt.AlignLeading | Qt.AlignLeft | Qt.AlignVCenter)
+        self.CaptionLabel_2.setObjectName("CaptionLabel_2")
+        self.verticalLayout_3.addWidget(self.CaptionLabel_2)
+        self.gridLayout_2.addLayout(self.verticalLayout_3, 10, 0, 1, 2)
+        self.gridLayout = QGridLayout()
+        self.gridLayout.setObjectName("gridLayout")
+        self.verticalLayout_4 = QVBoxLayout()
+        self.verticalLayout_4.setSpacing(0)
+        self.verticalLayout_4.setObjectName("verticalLayout_4")
+        self.TitleLabel = TitleLabel(self)
+        self.TitleLabel.setObjectName("TitleLabel")
+        self.verticalLayout_4.addWidget(self.TitleLabel)
+        self.CaptionLabel = CaptionLabel(self)
+        self.CaptionLabel.setObjectName("CaptionLabel")
+        self.verticalLayout_4.addWidget(self.CaptionLabel)
+        self.gridLayout.addLayout(self.verticalLayout_4, 0, 0, 1, 1)
+        self.CaptionLabel_3 = CaptionLabel(self)
+        self.CaptionLabel_3.setAlignment(Qt.AlignRight | Qt.AlignTrailing | Qt.AlignVCenter)
+        self.CaptionLabel_3.setObjectName("CaptionLabel_3")
+        self.gridLayout.addWidget(self.CaptionLabel_3, 0, 1, 1, 1)
+        self.gridLayout_2.addLayout(self.gridLayout, 4, 0, 1, 2)
+        spacerItem1 = QSpacerItem(12, 21, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        self.gridLayout_2.addItem(spacerItem1, 8, 1, 1, 1)
         self.verticalLayout_5 = QVBoxLayout()
         self.verticalLayout_5.setContentsMargins(0, 0, 0, -1)
         self.verticalLayout_5.setSpacing(6)
@@ -929,8 +1265,8 @@ class DetailUi(QWidget):
         self.StrongBodyLabel_4 = StrongBodyLabel(self)
         self.StrongBodyLabel_4.setObjectName("StrongBodyLabel_4")
         self.verticalLayout_5.addWidget(self.StrongBodyLabel_4)
-        spacerItem6 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        self.verticalLayout_5.addItem(spacerItem6)
+        spacerItem2 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.verticalLayout_5.addItem(spacerItem2)
         self.gridLayout_4 = QGridLayout()
         self.gridLayout_4.setObjectName("gridLayout_4")
         self.CheckBox_7 = CheckBox(self)
@@ -991,63 +1327,17 @@ class DetailUi(QWidget):
         self.CaptionLabel_6 = CaptionLabel(self)
         self.CaptionLabel_6.setObjectName("CaptionLabel_6")
         self.verticalLayout_5.addWidget(self.CaptionLabel_6)
-        spacerItem7 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        self.verticalLayout_5.addItem(spacerItem7)
+        spacerItem3 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.verticalLayout_5.addItem(spacerItem3)
         self.PrimaryPushButton = PrimaryPushButton(self)
         self.PrimaryPushButton.setObjectName("PrimaryPushButton")
         self.verticalLayout_5.addWidget(self.PrimaryPushButton)
-        spacerItem8 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        self.verticalLayout_5.addItem(spacerItem8)
+        spacerItem4 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.verticalLayout_5.addItem(spacerItem4)
         self.IndeterminateProgressBar = IndeterminateProgressBar(self)
         self.IndeterminateProgressBar.setObjectName("IndeterminateProgressBar")
         self.verticalLayout_5.addWidget(self.IndeterminateProgressBar)
-        self.gridLayout_2.addLayout(self.verticalLayout_5, 6, 1, 7, 1)
-        spacerItem9 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        self.gridLayout_2.addItem(spacerItem9, 5, 0, 1, 2)
-        self.gridLayout = QGridLayout()
-        self.gridLayout.setObjectName("gridLayout")
-        self.verticalLayout_4 = QVBoxLayout()
-        self.verticalLayout_4.setSpacing(0)
-        self.verticalLayout_4.setObjectName("verticalLayout_4")
-        self.TitleLabel = TitleLabel(self)
-        self.TitleLabel.setObjectName("TitleLabel")
-        self.verticalLayout_4.addWidget(self.TitleLabel)
-        self.CaptionLabel = CaptionLabel(self)
-        self.CaptionLabel.setObjectName("CaptionLabel")
-        self.verticalLayout_4.addWidget(self.CaptionLabel)
-        self.gridLayout.addLayout(self.verticalLayout_4, 0, 0, 1, 1)
-        self.CaptionLabel_3 = CaptionLabel(self)
-        self.CaptionLabel_3.setAlignment(Qt.AlignRight | Qt.AlignTrailing | Qt.AlignVCenter)
-        self.CaptionLabel_3.setObjectName("CaptionLabel_3")
-        self.gridLayout.addWidget(self.CaptionLabel_3, 0, 1, 1, 1)
-        self.gridLayout_2.addLayout(self.gridLayout, 4, 0, 1, 2)
-        spacerItem10 = QSpacerItem(12, 21, QSizePolicy.Minimum, QSizePolicy.Expanding)
-        self.gridLayout_2.addItem(spacerItem10, 13, 0, 1, 1)
-        self.verticalLayout_3 = QVBoxLayout()
-        self.verticalLayout_3.setContentsMargins(-1, 0, -1, -1)
-        self.verticalLayout_3.setSpacing(2)
-        self.verticalLayout_3.setObjectName("verticalLayout_3")
-        self.StrongBodyLabel = StrongBodyLabel(self)
-        font = QFont()
-        font.setFamily("Microsoft YaHei UI")
-        font.setPointSize(10)
-        font.setBold(True)
-        font.setWeight(75)
-        self.StrongBodyLabel.setFont(font)
-        self.StrongBodyLabel.setAlignment(Qt.AlignLeading | Qt.AlignLeft | Qt.AlignVCenter)
-        self.StrongBodyLabel.setObjectName("StrongBodyLabel")
-        self.verticalLayout_3.addWidget(self.StrongBodyLabel)
-        self.CaptionLabel_2 = CaptionLabel(self)
-        font = QFont()
-        font.setFamily("Microsoft YaHei UI")
-        font.setPointSize(10)
-        font.setBold(False)
-        font.setWeight(50)
-        self.CaptionLabel_2.setFont(font)
-        self.CaptionLabel_2.setAlignment(Qt.AlignLeading | Qt.AlignLeft | Qt.AlignVCenter)
-        self.CaptionLabel_2.setObjectName("CaptionLabel_2")
-        self.verticalLayout_3.addWidget(self.CaptionLabel_2)
-        self.gridLayout_2.addLayout(self.verticalLayout_3, 15, 0, 1, 2)
+        self.gridLayout_2.addLayout(self.verticalLayout_5, 6, 0, 2, 2)
 
         self.examList = []
         self.paperList = []
@@ -1055,41 +1345,50 @@ class DetailUi(QWidget):
         self.subjectRank = None
         self.paperIndex = None
         self.username = None
-        self.PushButton.setEnabled(False)
-        self.PushButton_3.setEnabled(False)
-        self.PrimaryPushButton_2.setEnabled(False)
-        self.PrimaryPushButton.setEnabled(False)
-        self.PushButton.clicked.connect(self.selectAll)
-        self.PushButton_3.clicked.connect(self.selectNone)
-        self.IndeterminateProgressBar.stop()
-        self.ListWidget_2.clicked.connect(self.clickSheet)
         self.problemList = None
-        self.PrimaryPushButton_2.clicked.connect(self.download)
-        self.downloadSheetThread = DownloadSheet()
-        self.downloadSheetThread.callback.connect(self.downloadSheetCallback)
-        self.PrimaryPushButton.clicked.connect(self.generate)
-        self.generatePaperThread = GeneratePaper()
-        self.generatePaperThread.callback.connect(self.generatePaperCallback)
         self.downloadPath = None
-
+        self.PrimaryPushButton.setEnabled(False)
+        self.IndeterminateProgressBar.stop()
+        self.CheckBox.setChecked(True)
+        self.CheckBox_2.setChecked(True)
+        self.CheckBox_3.setChecked(True)
+        self.CheckBox_4.setChecked(True)
+        self.CheckBox_5.setChecked(True)
+        self.CheckBox_6.setChecked(True)
+        self.CheckBox_7.setChecked(True)
+        self.CheckBox_8.setChecked(True)
+        self.PrimaryPushButton.clicked.connect(self.generate)
         self.SwitchButton_3.setEnabled(False)
         self.SwitchButton_4.setEnabled(False)
         self.SwitchButton_5.setEnabled(False)
         self.SwitchButton_6.setEnabled(False)
         self.SwitchButton_7.setEnabled(False)
+        self.generatePaperThread = GeneratePaper()
+        self.generatePaperThread.callback.connect(self.generatePaperCallback)
+
+        if not os.path.exists("pandoc.exe"):
+            InfoBar.error(
+                title='功能无法正常使用',
+                content="无法找到 Pandoc。请尝试重新安装程序。",
+                orient=Qt.Horizontal,
+                isClosable=False,
+                position=InfoBarPosition.BOTTOM,
+                duration=-1,
+                parent=self
+            )
 
         self.retranslateUi()
         QMetaObject.connectSlotsByName(self)
 
     def retranslateUi(self):
         _translate = QCoreApplication.translate
-        self.setWindowTitle(_translate("Form", "ZhiXueHacker"))
-        self.StrongBodyLabel_2.setText(_translate("Form", "科目详情"))
-        self.StrongBodyLabel_3.setText(_translate("Form", "答题卡下载"))
-        self.PushButton.setText(_translate("Form", "全选"))
-        self.PushButton_3.setText(_translate("Form", "全不选"))
-        self.PrimaryPushButton_2.setText(_translate("Form", "下载"))
-        self.StrongBodyLabel_4.setText(_translate("Form", "试卷生成"))
+        self.setWindowTitle(_translate("", "ZhiXueHacker"))
+        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024 HShiDianLu. All Rights Reserved."))
+        self.CaptionLabel_2.setText(_translate("Form", "Version " + VERSION))
+        self.TitleLabel.setText(_translate("Form", "试卷生成"))
+        self.CaptionLabel.setText(_translate("Form", "当前考试：无 | 当前学科：无"))
+        self.CaptionLabel_3.setText(_translate("Form", ""))
+        self.StrongBodyLabel_4.setText(_translate("Form", "生成配置"))
         self.CheckBox_7.setText(_translate("Form", "原答案"))
         self.CheckBox_2.setText(_translate("Form", "得分"))
         self.CheckBox.setText(_translate("Form", "分值"))
@@ -1103,11 +1402,6 @@ class DetailUi(QWidget):
         self.CaptionLabel_6.setText(_translate("Form",
                                                "注：顺序将自上而下排列。试卷必须入库才能生成，可能需要重新排版。\n“是否置于文档末尾”存在较多问题，暂时无法使用"))
         self.PrimaryPushButton.setText(_translate("Form", "生成"))
-        self.TitleLabel.setText(_translate("Form", "学科详情"))
-        self.CaptionLabel.setText(_translate("Form", "当前考试：无"))
-        self.CaptionLabel_3.setText(_translate("Form", ""))
-        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024 HShiDianLu. All Rights Reserved."))
-        self.CaptionLabel_2.setText(_translate("Form", "Version " + VERSION))
 
         self.SwitchButton_3.setOnText("是")
         self.SwitchButton_3.setOffText("否")
@@ -1127,78 +1421,34 @@ class DetailUi(QWidget):
         self.paperIndex = paperIndex
         self.subjectRank = subjectRank
         self.username = username
-        self.CaptionLabel_3.setText(username + "同学")
-        self.ListWidget_2.clearSelection()
-        self.ListWidget_2.clear()
-        self.PushButton.setEnabled(False)
-        self.PushButton_3.setEnabled(False)
-        self.PrimaryPushButton_2.setEnabled(False)
         self.PrimaryPushButton.setEnabled(False)
         print(self.paperIndex)
-        self.TitleLabel.setText(paperList[paperIndex]['subjectName'] + "学科详情")
-        self.CaptionLabel.setText("当前考试：" + examList[examIndex]['examName'])
+        self.CaptionLabel.setText(
+            "当前考试：" + examList[examIndex]['examName'] + " | 当前学科：" + self.paperList[self.paperIndex][
+                'subjectName'])
         self.downloadPath = config['path'] + "/" + self.examList[self.examIndex]['examName'] + " - " + \
                             self.paperList[self.paperIndex]['subjectName']
-        # self.BodyLabel.setText("学科：" + paperList[paperIndex]['subjectName'] + "\n\n"
-        #                                                                         "ID：" + paperList[paperIndex][
-        #                            'paperId'] + "-" + paperList[paperIndex]['subjectCode'] + "\n\n"
-        #                                                                                      "分数：" + str(
-        #     paperList[paperIndex]['userScore']) + "/" + str(paperList[paperIndex]['standardScore']) + "\n\n"
-        #                                                                                               "参考人数（班级/学校）：" + str(
-        #     subjectRank['classTotal']) + "/" + str(subjectRank['gradeTotal']) + "\n\n"
-        #                                                                         "预计排名（班级）：" + str(
-        #     subjectRank['rank']))
-        self.BodyLabel.setText("学科：" + paperList[paperIndex]['subjectName'])
-        self.BodyLabel_2.setText("ID：" + paperList[paperIndex]['paperId'] + "-" + paperList[paperIndex]['subjectCode'])
-        self.BodyLabel_3.setText(
-            "分数：" + str(paperList[paperIndex]['userScore']) + "/" + str(paperList[paperIndex]['standardScore']))
-        self.BodyLabel_4.setText(
-            "参考人数（班级/学校）：" + str(subjectRank['classTotal']) + "/" + str(subjectRank['gradeTotal']))
-        if subjectRank['rank']:
-            InfoBar.warning(
-                title='排名功能警告',
-                content="排名仅供参考，可能会有1名之差。具体请以教师端排名为准。",
-                orient=Qt.Horizontal,
-                isClosable=False,
-                position=InfoBarPosition.BOTTOM,
-                duration=5000,
-                parent=self
-            )
-            self.BodyLabel_5.setText("班级排名（预计）：" + str(subjectRank['rank']))
-        else:
-            InfoBar.error(
-                title='排名获取失败',
-                content="无法获取排名。这可能是由于试卷少于三科或学校未开启该功能。",
-                orient=Qt.Horizontal,
-                isClosable=False,
-                position=InfoBarPosition.BOTTOM,
-                duration=5000,
-                parent=self
-            )
-            self.BodyLabel_5.setText("班级排名（预计）：无")
 
-    def clickSheet(self):
-        if len(self.ListWidget_2.selectedIndexes()) != 0:
-            self.PrimaryPushButton_2.setEnabled(True)
-        else:
-            self.PrimaryPushButton_2.setEnabled(False)
-
-    def selectAll(self):
-        for i in range(self.ListWidget_2.count()):
-            self.ListWidget_2.item(i).setSelected(True)
-        self.PrimaryPushButton_2.setEnabled(True)
-
-    def selectNone(self):
-        self.ListWidget_2.clearSelection()
-        self.PrimaryPushButton_2.setEnabled(False)
-
-    def download(self):
-        urls = []
-        self.PrimaryPushButton_2.setEnabled(False)
-        for i in self.ListWidget_2.selectedItems():
-            urls.append(i.text())
-        self.downloadSheetThread.setPat(self.downloadPath, urls)
-        self.downloadSheetThread.start()
+    def logout(self):
+        self.examList = []
+        self.paperList = []
+        self.examIndex = None
+        self.subjectRank = None
+        self.paperIndex = None
+        self.username = None
+        self.problemList = None
+        self.downloadPath = None
+        self.PrimaryPushButton.setEnabled(False)
+        self.IndeterminateProgressBar.stop()
+        self.CheckBox.setChecked(True)
+        self.CheckBox_2.setChecked(True)
+        self.CheckBox_3.setChecked(True)
+        self.CheckBox_4.setChecked(True)
+        self.CheckBox_5.setChecked(True)
+        self.CheckBox_6.setChecked(True)
+        self.CheckBox_7.setChecked(True)
+        self.CheckBox_8.setChecked(True)
+        self.CaptionLabel.setText("当前考试：无 | 当前学科：无")
 
     def generate(self):
         self.PrimaryPushButton.setEnabled(False)
@@ -1225,15 +1475,27 @@ class DetailUi(QWidget):
         )
         self.IndeterminateProgressBar.start()
 
-    def sheetCallback(self, success, info, sheetList):
+    def generatePaperCallback(self, success, info):
+        self.PrimaryPushButton.setEnabled(True)
+        self.IndeterminateProgressBar.stop()
         if success:
-            for i in sheetList:
-                self.ListWidget_2.addItem(QListWidgetItem(i))
-            self.PushButton.setEnabled(True)
-            self.PushButton_3.setEnabled(True)
+            w = InfoBar(
+                icon=InfoBarIcon.INFORMATION,
+                title='生成试卷成功',
+                content="试卷已保存至 " + self.downloadPath + " 目录下。",
+                orient=Qt.Vertical,
+                isClosable=True,
+                position=InfoBarPosition.BOTTOM,
+                duration=-1,
+                parent=self
+            )
+            pb = PushButton('打开文件夹')
+            w.addWidget(pb)
+            pb.clicked.connect(lambda link: QDesktopServices.openUrl(QUrl.fromLocalFile(self.downloadPath)))
+            w.show()
         else:
             InfoBar.error(
-                title='答题卡获取失败',
+                title='生成试卷失败',
                 content="错误信息：" + displayError(info),
                 orient=Qt.Horizontal,
                 isClosable=False,
@@ -1243,6 +1505,8 @@ class DetailUi(QWidget):
             )
 
     def problemCallback(self, success, info, problemList):
+        if not os.path.exists("pandoc.exe"):
+            return
         if success:
             self.problemList = problemList
             for i in self.problemList:
@@ -1272,55 +1536,156 @@ class DetailUi(QWidget):
                 parent=self
             )
 
-    def downloadSheetCallback(self, success, info):
-        self.PrimaryPushButton_2.setEnabled(True)
-        if success:
-            w = InfoBar(
-                icon=InfoBarIcon.INFORMATION,
-                title='下载成功',
-                content="答题卡已保存至 " + self.downloadPath + " 目录下。",
-                orient=Qt.Vertical,
-                isClosable=True,
-                position=InfoBarPosition.BOTTOM,
-                duration=-1,
-                parent=self
-            )
-            pb = PushButton('打开文件夹')
-            w.addWidget(pb)
-            pb.clicked.connect(lambda link: QDesktopServices.openUrl(QUrl.fromLocalFile(self.downloadPath)))
-            w.show()
-        else:
-            InfoBar.error(
-                title='下载失败',
-                content="错误信息：" + displayError(info),
-                orient=Qt.Horizontal,
-                isClosable=False,
-                position=InfoBarPosition.BOTTOM,
-                duration=5000,
-                parent=self
-            )
 
-    def generatePaperCallback(self, success, info):
-        self.PrimaryPushButton.setEnabled(True)
-        self.IndeterminateProgressBar.stop()
+class ScoreDetailUI(QFrame):
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("ScoreDetail")
+        # self.resize(750, 585)
+        font = QFont()
+        font.setFamily("Microsoft JhengHei UI")
+        font.setPointSize(10)
+        self.setFont(font)
+        # self.setStyleSheet("")
+        self.gridLayout_2 = QGridLayout(self)
+        self.gridLayout_2.setContentsMargins(20, 40, 20, 15)
+        self.gridLayout_2.setHorizontalSpacing(70)
+        self.gridLayout_2.setObjectName("gridLayout_2")
+        self.verticalLayout_3 = QVBoxLayout()
+        self.verticalLayout_3.setContentsMargins(-1, 0, -1, -1)
+        self.verticalLayout_3.setSpacing(2)
+        self.verticalLayout_3.setObjectName("verticalLayout_3")
+        self.StrongBodyLabel = StrongBodyLabel(self)
+        font = QFont()
+        font.setFamily("Microsoft YaHei UI")
+        font.setPointSize(10)
+        font.setBold(True)
+        font.setWeight(75)
+        self.StrongBodyLabel.setFont(font)
+        self.StrongBodyLabel.setAlignment(Qt.AlignLeading | Qt.AlignLeft | Qt.AlignVCenter)
+        self.StrongBodyLabel.setObjectName("StrongBodyLabel")
+        self.verticalLayout_3.addWidget(self.StrongBodyLabel)
+        self.CaptionLabel_2 = CaptionLabel(self)
+        font = QFont()
+        font.setFamily("Microsoft YaHei UI")
+        font.setPointSize(10)
+        font.setBold(False)
+        font.setWeight(50)
+        self.CaptionLabel_2.setFont(font)
+        self.CaptionLabel_2.setAlignment(Qt.AlignLeading | Qt.AlignLeft | Qt.AlignVCenter)
+        self.CaptionLabel_2.setObjectName("CaptionLabel_2")
+        self.verticalLayout_3.addWidget(self.CaptionLabel_2)
+        self.gridLayout_2.addLayout(self.verticalLayout_3, 9, 0, 1, 2)
+        self.gridLayout = QGridLayout()
+        self.gridLayout.setObjectName("gridLayout")
+        self.verticalLayout_4 = QVBoxLayout()
+        self.verticalLayout_4.setSpacing(0)
+        self.verticalLayout_4.setObjectName("verticalLayout_4")
+        self.TitleLabel = TitleLabel(self)
+        self.TitleLabel.setObjectName("TitleLabel")
+        self.verticalLayout_4.addWidget(self.TitleLabel)
+        self.CaptionLabel = CaptionLabel(self)
+        self.CaptionLabel.setObjectName("CaptionLabel")
+        self.verticalLayout_4.addWidget(self.CaptionLabel)
+        self.gridLayout.addLayout(self.verticalLayout_4, 0, 0, 1, 1)
+        self.CaptionLabel_3 = CaptionLabel(self)
+        self.CaptionLabel_3.setAlignment(Qt.AlignRight | Qt.AlignTrailing | Qt.AlignVCenter)
+        self.CaptionLabel_3.setObjectName("CaptionLabel_3")
+        self.gridLayout.addWidget(self.CaptionLabel_3, 0, 1, 1, 1)
+        self.gridLayout_2.addLayout(self.gridLayout, 4, 0, 1, 2)
+        spacerItem = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.gridLayout_2.addItem(spacerItem, 5, 0, 1, 2)
+        self.TreeWidget = TreeWidget(self)
+        self.TreeWidget.setObjectName("TreeWidget")
+        self.TreeWidget.header().setDefaultSectionSize(125)
+        self.TreeWidget.header().setMinimumSectionSize(100)
+        self.TreeWidget.setColumnWidth(0, 150)
+        self.TreeWidget.setAnimated(True)
+        self.gridLayout_2.addWidget(self.TreeWidget, 6, 0, 1, 2)
+        spacerItem1 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.gridLayout_2.addItem(spacerItem1, 7, 0, 1, 2)
+
+        self.retranslateUi()
+        QMetaObject.connectSlotsByName(self)
+
+    def retranslateUi(self):
+        _translate = QCoreApplication.translate
+        self.setWindowTitle(_translate("Form", "ZhiXueHacker"))
+        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024 HShiDianLu. All Rights Reserved."))
+        self.CaptionLabel_2.setText(_translate("Form", "Version " + VERSION))
+        self.TitleLabel.setText(_translate("Form", "得分详情"))
+        self.CaptionLabel.setText(_translate("Form", "当前学科：无 | 当前学科：无"))
+        self.CaptionLabel_3.setText(_translate("Form", ""))
+        self.TreeWidget.headerItem().setText(0, _translate("Form", "题号"))
+        self.TreeWidget.headerItem().setText(1, _translate("Form", "得分"))
+        self.TreeWidget.headerItem().setText(2, _translate("Form", "评分方式"))
+        self.TreeWidget.headerItem().setText(3, _translate("Form", "批阅教师"))
+        self.TreeWidget.headerItem().setText(4, _translate("Form", "批阅时间"))
+        __sortingEnabled = self.TreeWidget.isSortingEnabled()
+        self.TreeWidget.setSortingEnabled(__sortingEnabled)
+
+    def activePage(self, examList, examIndex, paperList, paperIndex, subjectRank, username):
+        self.examList = examList
+        self.examIndex = examIndex
+        self.paperList = paperList
+        self.paperIndex = paperIndex
+        self.subjectRank = subjectRank
+        self.username = username
+        self.CaptionLabel_3.setText(username + "同学")
+        self.TreeWidget.clearSelection()
+        self.TreeWidget.clear()
+        print(self.paperIndex)
+        self.CaptionLabel.setText(
+            "当前考试：" + examList[examIndex]['examName'] + " | 当前学科：" + self.paperList[self.paperIndex][
+                'subjectName'])
+        self.downloadPath = config['path'] + "/" + self.examList[self.examIndex]['examName'] + " - " + \
+                            self.paperList[self.paperIndex]['subjectName']
+
+    def logout(self):
+        self.TreeWidget.clearSelection()
+        self.TreeWidget.clear()
+        self.examList = []
+        self.paperList = []
+        self.examIndex = None
+        self.subjectRank = None
+        self.paperIndex = None
+        self.username = None
+        self.problemList = None
+        self.downloadPath = None
+        self.CaptionLabel.setText("当前考试：无 | 当前学科：无")
+        self.CaptionLabel_3.setText("")
+
+    def scoreDetailCallback(self, success, info, scoreList):
         if success:
-            w = InfoBar(
-                icon=InfoBarIcon.INFORMATION,
-                title='生成试卷成功',
-                content="试卷已保存至 " + self.downloadPath + " 目录下。",
-                orient=Qt.Vertical,
-                isClosable=True,
-                position=InfoBarPosition.BOTTOM,
-                duration=-1,
-                parent=self
-            )
-            pb = PushButton('打开文件夹')
-            w.addWidget(pb)
-            pb.clicked.connect(lambda link: QDesktopServices.openUrl(QUrl.fromLocalFile(self.downloadPath)))
-            w.show()
+            print(scoreList)
+            for i in scoreList:
+                root = QTreeWidgetItem(self.TreeWidget)
+                root.setText(0, i['dispTitle'])
+                root.setText(1, str(i['score']) + "/" + str(i['standardScore']))
+                try:
+                    for j in i['subTopics']:
+                        sub = QTreeWidgetItem(root)
+                        if j['subTopicIndex'] == -1:
+                            sub.setText(0, i['dispTitle'])
+                        else:
+                            sub.setText(0, i['dispTitle'] + "." + str(j['subTopicIndex']))
+                        sub.setText(1, str(j['score']))
+                        sub.setText(2, j['scoreSource'])
+                        for k in j['teacherMarkingRecords']:
+                            teacher = QTreeWidgetItem(sub)
+                            teacher.setText(0, k['role'])
+                            teacher.setText(1, str(k['score']))
+                            teacher.setText(3, k['teacherName'])
+                            teacher.setText(4,
+                                            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(k['markingTime'] / 1000)))
+                            root.addChild(teacher)
+                        root.addChild(sub)
+                except Exception as e:
+                    print(e)
+            self.TreeWidget.expandAll()
         else:
             InfoBar.error(
-                title='生成试卷失败',
+                title='得分详情获取失败',
                 content="错误信息：" + displayError(info),
                 orient=Qt.Horizontal,
                 isClosable=False,
@@ -1905,11 +2270,19 @@ class MenuUi(WindowType):
         self.aboutInterface = InfoUi()
         self.detailInterface = DetailUi()
         self.settingInterface = SettingUi()
+        self.downloadInterface = DownloadUI()
+        self.scoreDetailInterface = ScoreDetailUI()
 
         self.mainInterface.mainSingal.connect(self.detailInterface.activePage)
+        self.mainInterface.mainSingal.connect(self.downloadInterface.activePage)
+        self.mainInterface.mainSingal.connect(self.scoreDetailInterface.activePage)
         self.mainInterface.mainSingal.connect(self.switchToDetail)
         self.mainInterface.fetchRankThread.sheetCallback.connect(self.detailInterface.sheetCallback)
-        self.mainInterface.fetchRankThread.problemCallback.connect(self.detailInterface.problemCallback)
+        self.mainInterface.fetchRankThread.problemCallback.connect(self.downloadInterface.problemCallback)
+        self.mainInterface.fetchRankThread.scoreDetailCallback.connect(self.scoreDetailInterface.scoreDetailCallback)
+        self.mainInterface.logoutSignal.connect(self.detailInterface.logout)
+        self.mainInterface.logoutSignal.connect(self.downloadInterface.logout)
+        self.mainInterface.logoutSignal.connect(self.scoreDetailInterface.logout)
 
         self.initLayout()
 
@@ -1931,7 +2304,9 @@ class MenuUi(WindowType):
         self.navigationInterface.setAcrylicEnabled(True)
 
         self.addSubInterface(self.mainInterface, FIF.HOME, '首页')
-        self.addSubInterface(self.detailInterface, FIF.PIE_SINGLE, '详情')
+        self.addSubInterface(self.detailInterface, FIF.PIE_SINGLE, '学科概览')
+        self.addSubInterface(self.scoreDetailInterface, FIF.IOT, '得分详情')
+        self.addSubInterface(self.downloadInterface, FIF.DOWNLOAD, '试卷生成')
         self.addSubInterface(self.settingInterface, FIF.SETTING, '设置', NavigationItemPosition.BOTTOM)
         self.addSubInterface(self.aboutInterface, FIF.INFO, '关于', NavigationItemPosition.BOTTOM)
 
