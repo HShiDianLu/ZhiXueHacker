@@ -22,7 +22,7 @@ from qfluentwidgets import FluentIcon as FIF
 from qframelesswindow import *
 from selenium import webdriver
 
-VERSION = "v3.0-PreRelease"
+VERSION = "v3.1-PreRelease"
 FILEDIR = "C:/ZhiXueHacker"
 
 # 创建图标
@@ -161,6 +161,8 @@ MSFluentTitleBar > QLabel#titleLabel, CustomTitleBar > QLabel#titleLabel {
     padding: 0 4px
 }
 '''
+
+ROLES = ["一评", "二评", "三评", "四评", "五评", "六评", "七评", "八评", "九评"]
 
 
 def changeVal(sec, opt, val):
@@ -648,7 +650,6 @@ class MainUi(QFrame):
         self.paperIndex = None
         self.username = None
         self.loginState = False
-        self.doFetchPaper = True
 
         if os.path.exists(FILEDIR + "/cookies.json"):
             self.getTokenThread.start()
@@ -705,6 +706,22 @@ class MainUi(QFrame):
         self.ListWidget_2.clearSelection()
         self.PrimaryPushButton_3.setEnabled(False)
 
+    def logout(self, changeText):
+        self.loginState = False
+        if changeText:
+            self.PrimaryPushButton.setText("登录")
+            self.CaptionLabel_3.setText("未登录")
+        self.ListWidget.clearSelection()
+        self.ListWidget.clear()
+        self.ListWidget_2.clearSelection()
+        self.ListWidget_2.clear()
+        self.PrimaryPushButton_3.setEnabled(False)
+        self.PushButton_2.setEnabled(False)
+        self.PrimaryPushButton_2.setEnabled(False)
+        self.ToolButton.setEnabled(False)
+        self.fetchPage = 1
+        self.logoutSignal.emit()
+
     def login(self):
         if not self.loginState:
             self.PrimaryPushButton.setEnabled(False)
@@ -720,19 +737,7 @@ class MainUi(QFrame):
             )
         else:
             os.remove(FILEDIR + "/cookies.json")
-            self.loginState = False
-            self.PrimaryPushButton.setText("登录")
-            self.CaptionLabel_3.setText("未登录")
-            self.ListWidget.clearSelection()
-            self.ListWidget.clear()
-            self.ListWidget_2.clearSelection()
-            self.ListWidget_2.clear()
-            self.PrimaryPushButton_3.setEnabled(False)
-            self.PushButton_2.setEnabled(False)
-            self.PrimaryPushButton_2.setEnabled(False)
-            self.ToolButton.setEnabled(False)
-            self.fetchPage = 1
-            self.logoutSignal.emit()
+            self.logout(True)
             InfoBar.success(
                 title='退出登录成功',
                 content="已清除 Cookies 并退出登录。",
@@ -776,12 +781,12 @@ class MainUi(QFrame):
 
     def refresh(self):
         self.ToolButton.setEnabled(False)
-        self.doFetchPaper = False
+        self.PrimaryPushButton.setEnabled(False)
+        self.logout(False)
         self.getTokenThread.start()
 
     def loginCallback(self, success, info):
         if success:
-            self.doFetchPaper = True
             self.getTokenThread.start()
         else:
             self.PrimaryPushButton.setEnabled(True)
@@ -802,9 +807,8 @@ class MainUi(QFrame):
             self.token = token
             self.username = username
             self.CaptionLabel_3.setText("你好，" + self.username + "同学")
-            if self.doFetchPaper:
-                self.fetchExamThread.setPat(self.token, 1)
-                self.fetchExamThread.start()
+            self.fetchExamThread.setPat(self.token, 1)
+            self.fetchExamThread.start()
             self.ToolButton.setEnabled(True)
             InfoBar.success(
                 title='登录成功',
@@ -818,19 +822,7 @@ class MainUi(QFrame):
             self.loginState = True
             self.PrimaryPushButton.setText("退出登录")
         else:
-            self.loginState = False
-            self.PrimaryPushButton.setText("登录")
-            self.CaptionLabel_3.setText("未登录")
-            self.ListWidget.clearSelection()
-            self.ListWidget.clear()
-            self.ListWidget_2.clearSelection()
-            self.ListWidget_2.clear()
-            self.PrimaryPushButton_3.setEnabled(False)
-            self.PushButton_2.setEnabled(False)
-            self.PrimaryPushButton_2.setEnabled(False)
-            self.ToolButton.setEnabled(False)
-            self.fetchPage = 1
-            self.logoutSignal.emit()
+            self.logout(True)
             InfoBar.error(
                 title='登录失败',
                 content="请重新登录。\n" + "错误信息：" + displayError(JSESSIONID),
@@ -1664,22 +1656,60 @@ class ScoreDetailUI(QFrame):
                 root.setText(1, str(i['score']) + "/" + str(i['standardScore']))
                 try:
                     for j in i['subTopics']:
-                        sub = QTreeWidgetItem(root)
                         if j['subTopicIndex'] == -1:
-                            sub.setText(0, i['dispTitle'])
+                            if len(j['teacherMarkingRecords']) != 1:
+                                if "marking" in j['scoreSource']:
+                                    root.setText(2, "取" + ROLES[
+                                        int(j['scoreSource'].replace("marking", "")) - 1] + "分数")
+                                elif j['scoreSource'] == "average":
+                                    root.setText(2, "取平均分数")
+                                else:
+                                    root.setText(2, "取" + j['scoreSource'] + "分数")
+                                for k in j['teacherMarkingRecords']:
+                                    sub = QTreeWidgetItem(root)
+                                    if "marking" in k['role']:
+                                        sub.setText(0, ROLES[int(k['role'].replace("marking", "")) - 1])
+                                    else:
+                                        sub.setText(0, k['role'])
+                                    sub.setText(1, str(k['score']))
+                                    sub.setText(3, k['teacherName'])
+                                    sub.setText(4,
+                                                time.strftime("%Y-%m-%d %H:%M:%S",
+                                                              time.localtime(k['markingTime'] / 1000)))
+                                    root.addChild(sub)
+                            else:
+                                root.setText(3, j['teacherMarkingRecords'][0]['teacherName'])
+                                root.setText(4, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(
+                                    j['teacherMarkingRecords'][0]['markingTime'] / 1000)))
                         else:
+                            sub = QTreeWidgetItem(root)
                             sub.setText(0, i['dispTitle'] + "." + str(j['subTopicIndex']))
-                        sub.setText(1, str(j['score']))
-                        sub.setText(2, j['scoreSource'])
-                        for k in j['teacherMarkingRecords']:
-                            teacher = QTreeWidgetItem(sub)
-                            teacher.setText(0, k['role'])
-                            teacher.setText(1, str(k['score']))
-                            teacher.setText(3, k['teacherName'])
-                            teacher.setText(4,
-                                            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(k['markingTime'] / 1000)))
-                            root.addChild(teacher)
-                        root.addChild(sub)
+                            sub.setText(1, str(j['score']))
+                            if len(j['teacherMarkingRecords']) != 1:
+                                if "marking" in j['scoreSource']:
+                                    sub.setText(2,
+                                                "取" + ROLES[int(j['scoreSource'].replace("marking", "")) - 1] + "分数")
+                                elif j['scoreSource'] == "average":
+                                    sub.setText(2, "取平均分数")
+                                else:
+                                    sub.setText(2, "取" + j['scoreSource'] + "分数")
+                                for k in j['teacherMarkingRecords']:
+                                    teacher = QTreeWidgetItem(sub)
+                                    if "marking" in k['role']:
+                                        teacher.setText(0, ROLES[int(k['role'].replace("marking", "")) - 1])
+                                    else:
+                                        teacher.setText(0, k['role'])
+                                    teacher.setText(1, str(k['score']))
+                                    teacher.setText(3, k['teacherName'])
+                                    teacher.setText(4,
+                                                    time.strftime("%Y-%m-%d %H:%M:%S",
+                                                                  time.localtime(k['markingTime'] / 1000)))
+                                    root.addChild(teacher)
+                                root.addChild(sub)
+                            else:
+                                sub.setText(3, j['teacherMarkingRecords'][0]['teacherName'])
+                                sub.setText(4, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(
+                                    j['teacherMarkingRecords'][0]['markingTime'] / 1000)))
                 except Exception as e:
                     print(e)
             self.TreeWidget.expandAll()
