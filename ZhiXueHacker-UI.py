@@ -22,7 +22,7 @@ from qfluentwidgets import FluentIcon as FIF
 from qframelesswindow import *
 from selenium import webdriver
 
-VERSION = "v3.1-PreRelease"
+VERSION = "v3.1"
 FILEDIR = "C:/ZhiXueHacker"
 
 # 创建图标
