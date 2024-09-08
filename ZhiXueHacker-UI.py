@@ -22,7 +22,7 @@ from qfluentwidgets import FluentIcon as FIF
 from qframelesswindow import *
 from selenium import webdriver
 
-VERSION = "v3.1"
+VERSION = "v3.2"
 FILEDIR = "C:/ZhiXueHacker"
 
 # 创建图标
@@ -313,8 +313,14 @@ class FetchRank(QThread):
             for j in s[0]['dataList']:
                 if j['id'] == self.paperId:
                     try:
-                        rank = math.ceil(self.subjectRank[self.subjectCode]['rankMulti'] / 100 * j['totalNum'])
-                        self.subjectRank[self.subjectCode]['rank'] = min(max(rank, 1), j['totalNum'])
+                        deltaMin = 1000
+                        for i in range(1, j['totalNum'] + 1):
+                            rank = 100 / (j['totalNum'] - 1) * (i - 1)
+                            delta = abs(self.subjectRank[self.subjectCode]['rankMulti'] - rank)
+                            print("pos:", i, "rank:", rank, "delta:", delta)
+                            if delta < deltaMin:
+                                self.subjectRank[self.subjectCode]['rank'] = i
+                                deltaMin = delta
                     except:
                         pass
                     self.subjectRank[self.subjectCode]['classTotal'] = j['totalNum']
@@ -381,6 +387,12 @@ class DownloadSheet(QThread):
                 os.mkdir(self.exportPath)
             for i in self.selectList:
                 print("开始下载", i)
+                respond = requests.head(i)
+                if respond.headers.get('Content-Type') == 'image/jpeg':
+                    self.callback.emit(False,
+                                       "Content-Type 为 " + respond.headers.get(
+                                           'Content-Type') + "，预期为 image/jpeg。这可能是由于 URL 已过期。请重新获取。")
+                    break
                 s = requests.get(i)
                 md5 = hashlib.md5(i.encode())
                 filename = md5.hexdigest()
