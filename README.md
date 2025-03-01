@@ -45,6 +45,7 @@
 用户名和密码是保存在本地的。
 
 如果登录时WebEngineView经常闪退，请将设置-高级-登录方式改为Selenium。
+（这个Bug可能是由于QWebEngineView自身的不稳定，与本程序无关）
 
 Copyright © 2024-2025 by HShiDianLu.
 
