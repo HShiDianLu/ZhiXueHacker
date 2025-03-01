@@ -23,10 +23,6 @@
   </a>
   
   <br>
-  
-  <a herf="https://github.com/trekhleb/state-of-the-art-shitcode" style="text-decoration:none" target="_blank">
-    <img src="https://img.shields.io/static/v1?label=State-of-the-art&message=Shitcode&color=7B5804" alt="Shitcode"/>
-  </a>
 
   <a style="text-decoration:none">
     <img src="https://img.shields.io/badge/Language-Python-blue" alt="Shitcode"/>
