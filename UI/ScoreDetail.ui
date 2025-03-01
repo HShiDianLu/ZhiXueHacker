@@ -296,7 +296,7 @@
         </font>
        </property>
        <property name="text">
-        <string>Copyright © 2024 HShiDianLu. All Rights Reserved.</string>
+        <string>Copyright © 2024-2025 HShiDianLu. All Rights Reserved.</string>
        </property>
        <property name="alignment">
         <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
@@ -334,7 +334,7 @@
      <property name="sizeHint" stdset="0">
       <size>
        <width>20</width>
-       <height>10</height>
+       <height>20</height>
       </size>
      </property>
     </spacer>
