@@ -62,7 +62,8 @@ class Config(QConfig):
     loginMethod = OptionsConfigItem(
         "Advanced", "LoginMethod", "WebEngineView", OptionsValidator(["WebEngineView", "Selenium", "手动填入 Cookie"]))
     renderMethod = OptionsConfigItem(
-        "Advanced", "RenderMethod", "OpenGLES", OptionsValidator(["DesktopOpenGL", "OpenGLES", "SoftwareOpenGL"]), restart=True)
+        "Advanced", "RenderMethod", "OpenGLES", OptionsValidator(["DesktopOpenGL", "OpenGLES", "SoftwareOpenGL"]),
+        restart=True)
 
 
 cfg = Config()
