@@ -40,7 +40,7 @@
 
 We promise not to save your username and password.
 
-Copyright © 2024 by HShiDianLu.
+Copyright © 2024-2025 by HShiDianLu.
 
 ---
 
