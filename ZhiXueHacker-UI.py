@@ -68,6 +68,9 @@ class Config(QConfig):
 cfg = Config()
 qconfig.load(FILEDIR + "/config.json", cfg)
 
+if not os.path.exists(cfg.get(cfg.exportFolder)):
+    os.mkdir(cfg.get(cfg.exportFolder))
+
 DARKQSS = '''Widget > QLabel {
     font: 24px 'Segoe UI', 'Microsoft YaHei';
 }
@@ -2176,7 +2179,7 @@ class SettingUi(QFrame):
         file = QFileDialog.getExistingDirectory(self, "请选择下载文件夹")
         if file:
             cfg.set(cfg.exportFolder, file)
-            self.exportCard.setContent(file)
+            self.settingCardsWidget.exportCard.setContent(file)
 
     def showRestart(self):
         if not self.showState:
