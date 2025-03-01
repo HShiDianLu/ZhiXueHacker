@@ -2,7 +2,7 @@
   ZhiXueHacker
 </h1>
 <p align="center">
-  A program that can fetch exam papers and answer sheets from ZhiXue(智学网).
+  智学网桌面端实用工具。
 </p>
 
 <p align="center">
@@ -33,12 +33,22 @@
   </a>
 </p>
 
-## Notice
-**To run the source code file directly, you need to put Pandoc in the working directory.**
+## 功能
+- 试卷信息查看
+- 考试排名
+- 答题卡下载
+- 得分详情
+- 试卷下载
+- 在线考试
 
-**Paper must be stored in the database to fetch it.**
+## 注意
+**源代码不包含Pandoc，若要下载试卷请将Pandoc置于工作目录内。**
 
-Username and password are saved in local.
+**试卷必须入库才能下载。**
+
+用户名和密码是保存在本地的。
+
+如果登录时WebEngineView经常闪退，请将设置-高级-登录方式改为Selenium。
 
 Copyright © 2024-2025 by HShiDianLu.
 
