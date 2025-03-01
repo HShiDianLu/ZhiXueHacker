@@ -38,7 +38,7 @@
 
 **Paper must be stored in the database to fetch it.**
 
-We promise not to save your username and password.
+Username and password are saved in local.
 
 Copyright © 2024-2025 by HShiDianLu.
 
