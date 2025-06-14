@@ -8,6 +8,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import time
 import textwrap
 import pypandoc
@@ -26,7 +27,7 @@ from urllib.parse import urlencode
 from deepdiff import DeepDiff
 from win10toast import ToastNotifier
 
-VERSION = "v4.0-PreRelease"
+VERSION = "v4.1"
 FILEDIR = "C:/ZhiXueHacker"
 
 # 创建图标
@@ -58,6 +59,7 @@ class Config(QConfig):
     exportFolder = ConfigItem("Main", "ExportFolder", "export", FolderValidator())
     savePassword = ConfigItem("Main", "SavePassword", False, BoolValidator())
     autoSync = ConfigItem("Main", "AutoSync", True, BoolValidator())
+    autoUpdate = ConfigItem("Main", "AutoUpdate", True, BoolValidator())
     newScoreMsg = ConfigItem("Main", "NewScoreMsg", True, BoolValidator())
     loginMethod = OptionsConfigItem(
         "Advanced", "LoginMethod", "WebEngineView", OptionsValidator(["WebEngineView", "Selenium", "手动填入 Cookie"]))
@@ -274,10 +276,9 @@ class FetchPaper(QThread):
                 subjectRank[i['subjectCode']] = {'rank': None, 'classTotal': None, 'gradeTotal': None,
                                                  'rankMulti': None}
             try:
-                s = \
-                    requests.get(
-                        "https://www.zhixue.com/zhixuebao/report/exam/getSubjectDiagnosis?examId=" + self.examId,
-                        headers={"XToken": self.token}).json()['result']['list']
+                s = requests.get(
+                    "https://www.zhixue.com/zhixuebao/report/exam/getSubjectDiagnosis?examId=" + self.examId,
+                    headers={"XToken": self.token}).json()['result']['list']
                 print(s)
                 for i in s:
                     subjectRank[i['subjectCode']]['rankMulti'] = i['myRank']
@@ -409,6 +410,7 @@ class FetchRank(QThread):
                             j.replace("    var hisQueParseDetail = ", "").rstrip(";").replace("true", "True").replace(
                                 "false",
                                 "False"))
+                        print(detail)
             if not detail:
                 self.problemCallback.emit(False, "无法找到变量 hisQueParseDetail。\n这可能是由于登录过期。请重新登录。",
                                           [])
@@ -474,9 +476,11 @@ class GeneratePaper(QThread):
                     elif (not self.option[0][0]) and self.option[1][0]:
                         htmlTemp += "(" + str(j['standardScore']) + "分) "
                     try:
-                        htmlTemp += j['content']['accessories'][0]['desc']
-                        for opt in j['content']['accessories'][0]['options']:
-                            htmlTemp += opt['id'] + "." + opt['desc'] + "<br/>"
+                        for k in j['content']['accessories']:
+                            htmlTemp += k['desc'] + "<br/>"
+                            for opt in k['options']:
+                                htmlTemp += opt['id'] + "." + opt['desc'] + "<br/>"
+                            htmlTemp += "<br/>"
                     except:
                         errs += 1
                     for i in range(2, 6):
@@ -653,6 +657,36 @@ class TokenRefresher(QThread):
                 print("Sync", token)
             except Exception as e:
                 self.errCallback.emit(str(e))
+
+
+class UpdateCheck(QThread):
+    callback = pyqtSignal(bool, bool, dict, str)
+
+    def __init__(self):
+        super().__init__()
+
+    def run(self):
+        url = 'https://api.github.com/repos/HShiDianLu/ZhiXueHacker/releases'
+        try:
+            response = requests.get(url)
+            data = json.loads(response.content)
+            print(data)
+            if 'message' in data:
+                self.callback.emit(False, False, {}, "（来自 Github API）"+data['message'])
+                return
+            data = data[0]
+        except Exception as e:
+            self.callback.emit(False, False, {}, str(e))
+            return
+        latest_release = data['tag_name']
+        print(latest_release)
+        newest = re.findall("\d+\.?\d*", latest_release)
+        now = re.findall("\d+\.?\d*", VERSION)
+        print(newest, now)
+        if newest == now:
+            self.callback.emit(True, False, {}, "")
+        else:
+            self.callback.emit(True, True, data, "")
 
 
 def displayError(info):
@@ -935,6 +969,12 @@ class MainUi(QFrame):
         self.paperDiffThread.start()
         self.newSubjectWindow = None
         self.firstTimeFetch = True
+        self.logoutView = None
+        self.logoutWindow = None
+        self.updateCheckThread = UpdateCheck()
+        self.updateCheckThread.callback.connect(self.updateCallback)
+        if cfg.get(cfg.autoUpdate):
+            self.updateCheckThread.start()
 
         if os.path.exists(FILEDIR + "/cookies.json"):
             self.getTokenThread.start()
@@ -995,6 +1035,20 @@ class MainUi(QFrame):
             except:
                 pass
 
+    def logoutEvent(self):
+        os.remove(FILEDIR + "/cookies.json")
+        self.logoutWindow.close()
+        self.logout(True)
+        InfoBar.success(
+            title="退出登录成功",
+            content="已清除 Cookie 并退出登录。",
+            orient=Qt.Horizontal,
+            isClosable=False,
+            position=InfoBarPosition.BOTTOM,
+            duration=3000,
+            parent=self
+        )
+
     def login(self):
         if not self.loginState:
             if cfg.get(cfg.loginMethod) == "Selenium":
@@ -1033,17 +1087,24 @@ class MainUi(QFrame):
                                        {'name': 'JSESSIONID', 'value': w.c2LineEdit.text(), 'path': '/'}], f)
                         self.loginCallback(True, "")
         else:
-            os.remove(FILEDIR + "/cookies.json")
-            self.logout(True)
-            InfoBar.success(
-                title="退出登录成功",
-                content="已清除 Cookie 并退出登录。",
-                orient=Qt.Horizontal,
-                isClosable=False,
-                position=InfoBarPosition.BOTTOM,
-                duration=3000,
-                parent=self
+            try:
+                self.logoutWindow.close()
+            except:
+                pass
+            self.logoutView = TeachingTipView(
+                icon=InfoBarIcon.WARNING,
+                title='退出登录',
+                content="退出登录后，所有已查询的结果会被清空。\n确认退出登录？",
+                isClosable=True,
+                tailPosition=TeachingTipTailPosition.TOP,
             )
+            button = PushButton('退出登录')
+            button.setFixedWidth(120)
+            button.clicked.connect(self.logoutEvent)
+            self.logoutView.addWidget(button, align=Qt.AlignRight)
+            self.logoutWindow = TeachingTip.make(self.logoutView, self.PrimaryPushButton, -1,
+                                                 TeachingTipTailPosition.TOP, self)
+            self.logoutView.closed.connect(self.logoutWindow.close)
 
     def fetch(self):
         self.PushButton_2.setEnabled(False)
@@ -1232,6 +1293,33 @@ class MainUi(QFrame):
             InfoBar.error(
                 title="试卷获取失败",
                 content="（成绩发布提醒）错误信息：" + displayError(info),
+                orient=Qt.Horizontal,
+                isClosable=False,
+                position=InfoBarPosition.BOTTOM,
+                duration=5000,
+                parent=self
+            )
+
+    def updateCallback(self, success, upd, data, info):
+        print(upd)
+        if success:
+            if upd:
+                if data['prerelease']:
+                    release = "测试版"
+                else:
+                    release = "正式版"
+                title = '新版本：' + data['name'] + " [" + release + "]"
+                content = "版本号：" + data['tag_name'] + "\n更新时间：" + data['published_at'].replace("T"," ").replace("Z","") + "\n\n" + data['body']
+                w = MessageBox(title, content, self)
+                w.setClosableOnMaskClicked(True)
+                w.yesButton.setText("前往 Github 页面")
+                w.cancelButton.setText("关闭")
+                if w.exec():
+                    QDesktopServices.openUrl(QUrl(data['html_url']))
+        else:
+            InfoBar.error(
+                title="检查更新失败",
+                content="错误信息：" + displayError(info),
                 orient=Qt.Horizontal,
                 isClosable=False,
                 position=InfoBarPosition.BOTTOM,
@@ -2237,6 +2325,13 @@ class SettingCards(ScrollArea):
             content="有新成绩发布时自动提醒"
         )
         self.mainGroup.addSettingCard(self.msgCard)
+        self.updCard = SwitchSettingCard(
+            configItem=cfg.autoUpdate,
+            icon=FIF.UPDATE,
+            title="自动更新",
+            content="每次启动程序时自动检查新版本（可在关于页面手动检查）"
+        )
+        self.mainGroup.addSettingCard(self.updCard)
 
         self.otherGroup = SettingCardGroup("个性化", self.scrollWidget)
         self.themeCard = OptionsSettingCard(
@@ -2310,12 +2405,17 @@ class InfoUi(QFrame):
         self.verticalLayout.addItem(spacerItem1)
         self.ElevatedCardWidget = ElevatedCardWidget(self)
         self.ElevatedCardWidget.setObjectName("ElevatedCardWidget")
-        self.verticalLayout_3 = QVBoxLayout(self.ElevatedCardWidget)
-        self.verticalLayout_3.setContentsMargins(10, 10, 10, 10)
-        self.verticalLayout_3.setObjectName("verticalLayout_3")
+        self.gridLayout_5 = QGridLayout(self.ElevatedCardWidget)
+        self.gridLayout_5.setContentsMargins(10, 10, 10, 10)
+        self.gridLayout_5.setObjectName("gridLayout_5")
         self.StrongBodyLabel_3 = StrongBodyLabel(self.ElevatedCardWidget)
         self.StrongBodyLabel_3.setObjectName("StrongBodyLabel_3")
-        self.verticalLayout_3.addWidget(self.StrongBodyLabel_3)
+        self.gridLayout_5.addWidget(self.StrongBodyLabel_3, 1, 0, 1, 1)
+        spacerItem2 = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.gridLayout_5.addItem(spacerItem2, 2, 1, 1, 1)
+        self.PushButton = PushButton(self.ElevatedCardWidget)
+        self.PushButton.setObjectName("PushButton")
+        self.gridLayout_5.addWidget(self.PushButton, 2, 2, 1, 1)
         self.verticalLayout_6 = QVBoxLayout()
         self.verticalLayout_6.setSpacing(0)
         self.verticalLayout_6.setObjectName("verticalLayout_6")
@@ -2325,10 +2425,10 @@ class InfoUi(QFrame):
         self.BodyLabel_5 = BodyLabel(self.ElevatedCardWidget)
         self.BodyLabel_5.setObjectName("BodyLabel_5")
         self.verticalLayout_6.addWidget(self.BodyLabel_5)
-        self.verticalLayout_3.addLayout(self.verticalLayout_6)
+        self.gridLayout_5.addLayout(self.verticalLayout_6, 2, 0, 1, 1)
         self.verticalLayout.addWidget(self.ElevatedCardWidget)
-        spacerItem2 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        self.verticalLayout.addItem(spacerItem2)
+        spacerItem3 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.verticalLayout.addItem(spacerItem3)
         self.ElevatedCardWidget_3 = ElevatedCardWidget(self)
         self.ElevatedCardWidget_3.setObjectName("ElevatedCardWidget_3")
         self.gridLayout_2 = QGridLayout(self.ElevatedCardWidget_3)
@@ -2348,17 +2448,16 @@ class InfoUi(QFrame):
         self.gridLayout_2.addWidget(self.StrongBodyLabel_6, 0, 0, 1, 2)
         self.ToolButton_2 = ToolButton(self.ElevatedCardWidget_3)
         self.ToolButton_2.setObjectName("ToolButton_2")
-        self.ToolButton_2.setIcon(FIF.GITHUB)
         self.gridLayout_2.addWidget(self.ToolButton_2, 2, 0, 3, 1)
         self.CaptionLabel_3 = CaptionLabel(self.ElevatedCardWidget_3)
         self.CaptionLabel_3.setAlignment(Qt.AlignRight | Qt.AlignTrailing | Qt.AlignVCenter)
         self.CaptionLabel_3.setObjectName("CaptionLabel_3")
         self.gridLayout_2.addWidget(self.CaptionLabel_3, 3, 2, 1, 1)
-        spacerItem3 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        self.gridLayout_2.addItem(spacerItem3, 1, 0, 1, 3)
-        self.verticalLayout.addWidget(self.ElevatedCardWidget_3)
         spacerItem4 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
-        self.verticalLayout.addItem(spacerItem4)
+        self.gridLayout_2.addItem(spacerItem4, 1, 0, 1, 3)
+        self.verticalLayout.addWidget(self.ElevatedCardWidget_3)
+        spacerItem5 = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.verticalLayout.addItem(spacerItem5)
         self.ElevatedCardWidget_2 = ElevatedCardWidget(self)
         self.ElevatedCardWidget_2.setObjectName("ElevatedCardWidget_2")
         self.verticalLayout_4 = QVBoxLayout(self.ElevatedCardWidget_2)
@@ -2371,9 +2470,13 @@ class InfoUi(QFrame):
         self.PlainTextEdit.setObjectName("PlainTextEdit")
         self.verticalLayout_4.addWidget(self.PlainTextEdit)
         self.verticalLayout.addWidget(self.ElevatedCardWidget_2)
-        spacerItem5 = QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding)
-        self.verticalLayout.addItem(spacerItem5)
+        spacerItem6 = QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        self.verticalLayout.addItem(spacerItem6)
+        self.ToolButton_2.setIcon(FIF.GITHUB)
 
+        self.updateCheckThread = UpdateCheck()
+        self.updateCheckThread.callback.connect(self.updateCallback)
+        self.PushButton.clicked.connect(self.checkUpdate)
         self.ToolButton_2.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl("https://github.com/HShiDianLu/ZhiXueHacker")))
 
@@ -2385,6 +2488,7 @@ class InfoUi(QFrame):
         self.setWindowTitle(_translate("Form", "ZhiXueHacker"))
         self.TitleLabel.setText(_translate("Form", "关于"))
         self.CaptionLabel.setText(_translate("Form", "ZhiXueHacker"))
+        self.PushButton.setText(_translate("Form", "检查更新..."))
         self.BodyLabel.setText(
             _translate("Form", "ZhiXueHacker 是一款可以获取考试分数、排名（预测）、试卷、答题卡及进行在线考试的工具。"))
         self.StrongBodyLabel_3.setText(_translate("Form", "程序信息"))
@@ -2594,6 +2698,48 @@ class InfoUi(QFrame):
                                                            "LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\n"
                                                            "OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\n"
                                                            "WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."))
+
+    def checkUpdate(self):
+        self.PushButton.setEnabled(False)
+        self.updateCheckThread.start()
+
+    def updateCallback(self, success, upd, data, info):
+        print(upd)
+        self.PushButton.setEnabled(True)
+        if success:
+            if upd:
+                if data['prerelease']:
+                    release = "测试版"
+                else:
+                    release = "正式版"
+                title = '新版本：' + data['name'] + " [" + release + "]"
+                content = "版本号：" + data['tag_name'] + "\n更新时间：" + data['published_at'].replace("T"," ").replace("Z","") + "\n\n" + data['body']
+                w = MessageBox(title, content, self)
+                w.setClosableOnMaskClicked(True)
+                w.yesButton.setText("前往 Github 页面")
+                w.cancelButton.setText("关闭")
+                if w.exec():
+                    QDesktopServices.openUrl(QUrl(data['html_url']))
+            else:
+                InfoBar.info(
+                    title="检查更新",
+                    content="当前版本是最新版本。",
+                    orient=Qt.Horizontal,
+                    isClosable=False,
+                    position=InfoBarPosition.BOTTOM,
+                    duration=3000,
+                    parent=self
+                )
+        else:
+            InfoBar.error(
+                title="检查更新失败",
+                content="错误信息：" + displayError(info),
+                orient=Qt.Horizontal,
+                isClosable=False,
+                position=InfoBarPosition.BOTTOM,
+                duration=5000,
+                parent=self
+            )
 
 
 class ExamListUi(QFrame):
@@ -2805,7 +2951,7 @@ class ExamListUi(QFrame):
         delta2 = datetime.datetime.strptime(end, "%Y-%m-%d %H:%M:%S") - datetime.datetime.now()
         delta3 = datetime.datetime.strptime(start, "%Y-%m-%d %H:%M:%S") - datetime.datetime.now()
         if self.onlineList[cur]['status'] == 1:
-            # self.PrimaryPushButton_2.setEnabled(False)
+            self.PrimaryPushButton_2.setEnabled(False)
             self.PrimaryPushButton_2.setText("考试未开始")
             m, s = divmod(self.onlineList[cur]['remainTime'], 60)
             m1, s1 = divmod(self.onlineList[cur]['signRemainTime'], 60)
