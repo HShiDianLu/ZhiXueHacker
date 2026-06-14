@@ -27,7 +27,7 @@ from urllib.parse import urlencode
 from deepdiff import DeepDiff
 from win10toast import ToastNotifier
 
-VERSION = "v4.1"
+VERSION = "v4.2"
 FILEDIR = "C:/ZhiXueHacker"
 
 # 创建图标
@@ -204,7 +204,7 @@ class LoginSelenium(QThread):
 
 
 class GetToken(QThread):
-    callback = pyqtSignal(bool, str, str, str, str)
+    callback = pyqtSignal(bool, str, str, str, dict)
 
     def run(self):
         try:
@@ -221,41 +221,68 @@ class GetToken(QThread):
                     tlsysSessionId = i['value']
                     print("已获取tlsysSessionId：", i['value'])
             token = requests.get(url="https://www.zhixue.com/container/app/token/getToken",
-                                 cookies={"JSESSIONID": JSESSIONID, "tlsysSessionId": tlsysSessionId}).json()
+                                 cookies={"JSESSIONID": JSESSIONID, "tlsysSessionId": tlsysSessionId}, timeout=5).json()
             print(token)
             if token['success']:
                 print("已获取Token：", token['result'])
                 username = requests.get(
                     url="https://www.zhixue.com/container/container/student/account/",
-                    cookies={"JSESSIONID": JSESSIONID, "tlsysSessionId": tlsysSessionId}).json()
+                    cookies={"JSESSIONID": JSESSIONID, "tlsysSessionId": tlsysSessionId}, timeout=5).json()
                 print(username)
-                self.callback.emit(True, JSESSIONID, tlsysSessionId, token['result'], username['student']['name'])
+                self.callback.emit(True, JSESSIONID, tlsysSessionId, token['result'], username['student'])
             else:
                 print("Token获取失败，", token['errorInfo'], "，请重新登录")
                 os.remove(FILEDIR + "/cookies.json")
-                self.callback.emit(False, token['errorInfo'], "", "", "")
+                self.callback.emit(False, token['errorInfo'], "", "", {})
         except Exception as e:
-            self.callback.emit(False, str(e), "", "", "")
+            self.callback.emit(False, str(e), "", "", {})
 
 
 class FetchExam(QThread):
-    callback = pyqtSignal(bool, str, list, bool)
+    callback = pyqtSignal(bool, str, list, bool, list, int, bool)
 
-    def setPat(self, token, page):
+    def setPat(self, token, page, nowYear):
         self.token = token
         self.page = page
+        self.nowYear = nowYear
 
     def run(self):
         try:
+            yr = requests.get(url="https://www.zhixue.com/zhixuebao/base/common/academicYear",
+                              headers={"XToken": self.token}, timeout=5).json()['result']
+            print(yr[self.nowYear], self.page)
             s = requests.get(
                 url="https://www.zhixue.com/zhixuebao/report/exam/getUserExamList?pageIndex=" + str(
-                    self.page) + "&pageSize=10",
-                headers={"XToken": self.token}).json()['result']
+                    self.page) + "&pageSize=10&startSchoolYear=" + str(
+                    yr[self.nowYear]['beginTime']) + "&endSchoolYear=" + str(yr[self.nowYear]['endTime']),
+                headers={"XToken": self.token}, timeout=5).json()['result']
             print(s)
-            next = s['hasNextPage']
-            self.callback.emit(True, "", s['examList'], next)
+            for i in s['examList']:
+                i['ac'] = self.nowYear
+            lastList = s['examList']
+            gm = False
+            while (not s['examList']) or (not s['hasNextPage']):
+                gm = True
+                self.page = 1
+                self.nowYear += 1
+                print(yr[self.nowYear], self.nowYear, len(yr))
+                if self.nowYear >= len(yr) - 1:
+                    print("toend")
+                    self.callback.emit(True, "", lastList, False, yr, self.nowYear - 1, False)
+                    return
+                s = requests.get(
+                    url="https://www.zhixue.com/zhixuebao/report/exam/getUserExamList?pageIndex=" + str(
+                        self.page) + "&pageSize=10&startSchoolYear=" + str(
+                        yr[self.nowYear]['beginTime']) + "&endSchoolYear=" + str(yr[self.nowYear]['endTime']),
+                    headers={"XToken": self.token}, timeout=5).json()['result']
+                print(s)
+            if gm:
+                for i in s['examList']:
+                    i['ac'] = self.nowYear
+                    lastList.append(i)
+            self.callback.emit(True, "", lastList, True, yr, self.nowYear, gm)
         except Exception as e:
-            self.callback.emit(False, str(e), [], False)
+            self.callback.emit(False, str(e), [], False, [], 0, False)
 
 
 class FetchPaper(QThread):
@@ -270,7 +297,7 @@ class FetchPaper(QThread):
             subjectRank = {}
             paperList = requests.get(
                 url="https://www.zhixue.com/zhixuebao/report/exam/getReportMain?examId=" + self.examId,
-                headers={"XToken": self.token}).json()['result']['paperList']
+                headers={"XToken": self.token}, timeout=5).json()['result']['paperList']
             print(paperList)
             for i in paperList:
                 subjectRank[i['subjectCode']] = {'rank': None, 'classTotal': None, 'gradeTotal': None,
@@ -278,13 +305,13 @@ class FetchPaper(QThread):
             try:
                 s = requests.get(
                     "https://www.zhixue.com/zhixuebao/report/exam/getSubjectDiagnosis?examId=" + self.examId,
-                    headers={"XToken": self.token}).json()['result']['list']
+                    headers={"XToken": self.token}, timeout=5).json()['result']['list']
                 print(s)
                 for i in s:
                     subjectRank[i['subjectCode']]['rankMulti'] = i['myRank']
                 print(subjectRank)
-            except:
-                print("排名获取失败")
+            except Exception as e:
+                print("排名获取失败", e)
             self.callback.emit(True, "", paperList, subjectRank)
         except Exception as e:
             self.callback.emit(False, str(e), [], {})
@@ -307,7 +334,7 @@ class PaperDiff(QThread):
             try:
                 paperList = requests.get(
                     url="https://www.zhixue.com/zhixuebao/report/exam/getReportMain?examId=" + self.examId,
-                    headers={"XToken": self.token}).json()['result']['paperList']
+                    headers={"XToken": self.token}, timeout=5).json()['result']['paperList']
                 examFile = FILEDIR + "/record-" + self.examId + ".json"
                 print(paperList)
                 check = glob.glob(FILEDIR + "/record-*.json")
@@ -340,7 +367,7 @@ class FetchRank(QThread):
     scoreDetailCallback = pyqtSignal(bool, str, list)
     problemCallback = pyqtSignal(bool, str, list)
 
-    def setPat(self, token, examId, paperId, subjectRank, subjectCode, JSESSIONID, tlsysSessionId):
+    def setPat(self, token, examId, paperId, subjectRank, subjectCode, JSESSIONID, tlsysSessionId, acYear, nowYear):
         self.token = token
         self.examId = examId
         self.paperId = paperId
@@ -348,12 +375,16 @@ class FetchRank(QThread):
         self.subjectCode = subjectCode
         self.JSESSIONID = JSESSIONID
         self.tlsysSessionId = tlsysSessionId
+        self.acYear = acYear
+        self.nowYear = nowYear
 
     def run(self):
         try:
             s = requests.get(
-                "https://www.zhixue.com/zhixuebao/report/paper/getLevelTrend?examId=" + self.examId + "&pageIndex=1&pageSize=5&paperId=" +
-                self.paperId, headers={"XToken": self.token}).json()['result']['list']
+                "https://www.zhixue.com/zhixuebao/report/paper/getLevelTrend?examId=" + self.examId + "&pageIndex=1&pageSize=5&startSchoolYear=" +
+                self.acYear[self.nowYear]['beginTime'] + "&endSchoolYear=" + self.acYear[self.nowYear][
+                    'endTime'] + "&paperId=" +
+                self.paperId, headers={"XToken": self.token}, timeout=5).json()['result']['list']
             print(s)
             for j in s[0]['dataList']:
                 if j['id'] == self.paperId:
@@ -379,7 +410,7 @@ class FetchRank(QThread):
         try:
             s = requests.get(
                 "https://www.zhixue.com/zhixuebao/report/checksheet/?examId=" + self.examId + "&paperId=" + self.paperId,
-                headers={"XToken": self.token}).json()['result']
+                headers={"XToken": self.token}, timeout=5).json()['result']
             print(s)
             orgPaper = eval(s['sheetImages'])
             self.sheetCallback.emit(True, "", orgPaper)
@@ -388,7 +419,7 @@ class FetchRank(QThread):
         try:
             s = requests.get(
                 "https://www.zhixue.com/zhixuebao/report/checksheet/?examId=" + self.examId + "&paperId=" + self.paperId,
-                headers={"XToken": self.token}).json()['result']
+                headers={"XToken": self.token}, timeout=5).json()['result']
             print(s)
             scoreDetail = \
                 eval(s['sheetDatas'].replace("true", "True").replace("false", "False").replace("null", "None"))[
@@ -399,7 +430,7 @@ class FetchRank(QThread):
         try:
             s = requests.get(
                 "https://www.zhixue.com/zhixuebao/zhixuebao/transcript/analysis/main/?paperId=" + self.paperId + "&examId=" + self.examId + "&token=" + self.token + "&subjectCode=" + self.subjectCode,
-                cookies={"JSESSIONID": self.JSESSIONID, "tlsysSessionId": self.tlsysSessionId}).text
+                cookies={"JSESSIONID": self.JSESSIONID, "tlsysSessionId": self.tlsysSessionId}, timeout=5).text
             soup = BeautifulSoup(s, "html.parser")
             js_tag = soup.find_all(name="script")
             detail = []
@@ -439,13 +470,13 @@ class DownloadSheet(QThread):
                                        "Content-Type 为 " + respond.headers.get(
                                            'Content-Type') + "，预期为 image/jpeg。这可能是由于 URL 已过期。请重新获取。")
                     break
-                s = requests.get(i)
+                s = requests.get(i, timeout=10)
                 md5 = hashlib.md5(i.encode())
                 filename = md5.hexdigest()
                 with open(self.exportPath + "/" + filename + ".png", "wb") as f:
                     f.write(s.content)
                 print("下载成功")
-            self.callback.emit(True, "")
+            self.callback.emit(True, filename)
         except Exception as e:
             self.callback.emit(False, str(e))
 
@@ -509,7 +540,7 @@ class GeneratePaper(QThread):
                         for kl in j['relatedKnowledgeGroups'][0]['relatedKnowledges']:
                             htmlTemp += kl['name'] + " "
                     htmlExport += htmlTemp + "<br/><hr/><br/>"
-            htmlExport += "Generate By ZhiXueHacker. | Copyright © 2024-2025 HShiDianLu. All Rights Reserved."
+            htmlExport += "Generate By ZhiXueHacker. | Copyright © 2024-2026 HShiDianLu. All Rights Reserved."
             print("解析成功")
             print("正在生成文档")
             with open(self.exportPath + "/exportTemp.html", "w", encoding="utf-8") as f:
@@ -535,7 +566,8 @@ class FetchOnline(QThread):
     def run(self):
         try:
             s = requests.post("http://app.zhixue.com/api-onlineexam/onlineExamList/getOnlineExamPaperList",
-                              data={"token": self.token, "status": 0, "pageIndex": self.page}).json()['result']
+                              data={"token": self.token, "status": 0, "pageIndex": self.page}, timeout=5).json()[
+                'result']
             print(s)
             if not s:
                 self.callback.emit(True, "", [], 0)
@@ -557,21 +589,22 @@ class FetchOnlineContent(QThread):
     def run(self):
         try:
             s = requests.post("http://app.zhixue.com/api-onlineexam/onlineexam/getAttentionAndPaperStatus",
-                              data={"token": self.token, "markingPaperId": self.paperId}).json()['result']
+                              data={"token": self.token, "markingPaperId": self.paperId}, timeout=5).json()['result']
             print(s)
             self.callback.emit(True, s['attentionContent'])
         except Exception as e:
             self.callback.emit(False, str(e))
         try:
             s = requests.post("http://app.zhixue.com/api-onlineexam/onlineexam/gettopicandanswerlist",
-                              data={"token": self.token, "markingPaperId": self.paperId}).json()['result']
+                              data={"token": self.token, "markingPaperId": self.paperId}, timeout=5).json()['result']
             print(s)
             self.problemListCallback.emit(True, "", s)
         except Exception as e:
             self.problemListCallback.emit(False, str(e), [])
         try:
             s = requests.post(
-                "http://app.zhixue.com/api-onlineexam/onlineExamList/getpapercountdown/?token=" + self.token + "&markingPaperId=" + self.paperId).json()[
+                "http://app.zhixue.com/api-onlineexam/onlineExamList/getpapercountdown/?token=" + self.token + "&markingPaperId=" + self.paperId,
+                timeout=5).json()[
                 'result']
             print(s)
             self.countdownCallback.emit(True, "", s['countDown'])
@@ -592,7 +625,7 @@ class FetchProblem(QThread):
             params = urlencode({'token': self.token, 'markingPaperId': self.paperId, 'topicNums': [self.nums]})
             print(params)
             s = requests.post(
-                "http://app.zhixue.com/api-onlineexam/onlineexam/getstemlist/?" + params).json()
+                "http://app.zhixue.com/api-onlineexam/onlineexam/getstemlist/?" + params, timeout=5).json()
             print(s)
             self.callback.emit(True, s['result'][0]['content'])
         except Exception as e:
@@ -622,7 +655,8 @@ class TimeSyncer(QThread):
                 continue
             try:
                 s = requests.post(
-                    "http://app.zhixue.com/api-onlineexam/onlineExamList/getpapercountdown/?token=" + self.token + "&markingPaperId=" + self.paperId).json()[
+                    "http://app.zhixue.com/api-onlineexam/onlineExamList/getpapercountdown/?token=" + self.token + "&markingPaperId=" + self.paperId,
+                    timeout=5).json()[
                     'result']
                 print(s)
                 self.value.emit(True, "", s['countDown'])
@@ -653,7 +687,8 @@ class TokenRefresher(QThread):
                     if i['name'] == "tlsysSessionId":
                         tlsysSessionId = i['value']
                 token = requests.get(url="https://www.zhixue.com/container/app/token/getToken",
-                                     cookies={"JSESSIONID": JSESSIONID, "tlsysSessionId": tlsysSessionId}).json()
+                                     cookies={"JSESSIONID": JSESSIONID, "tlsysSessionId": tlsysSessionId},
+                                     timeout=5).json()
                 print("Sync", token)
             except Exception as e:
                 self.errCallback.emit(str(e))
@@ -668,11 +703,11 @@ class UpdateCheck(QThread):
     def run(self):
         url = 'https://api.github.com/repos/HShiDianLu/ZhiXueHacker/releases'
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=20)
             data = json.loads(response.content)
             print(data)
             if 'message' in data:
-                self.callback.emit(False, False, {}, "（来自 Github API）"+data['message'])
+                self.callback.emit(False, False, {}, "（来自 Github API）" + data['message'])
                 return
             data = data[0]
         except Exception as e:
@@ -805,6 +840,7 @@ class MainUi(QFrame):
     mainSignal = pyqtSignal(list, int, list, int, dict, str)
     loginSignal = pyqtSignal(str, str)
     logoutSignal = pyqtSignal()
+    avatarSignal = pyqtSignal(str, str, str)
 
     def __init__(self):
         super().__init__()
@@ -950,6 +986,8 @@ class MainUi(QFrame):
         self.PrimaryPushButton_2.clicked.connect(self.fetchDetail)
         self.fetchRankThread = FetchRank()
         self.fetchRankThread.callback.connect(self.emitDetail)
+        self.avatarDownloadThread = DownloadSheet()
+        self.avatarDownloadThread.callback.connect(self.avatarCallback)
         self.ListWidget_2.clicked.connect(lambda: self.PrimaryPushButton_2.setEnabled(True))
         self.ToolButton.clicked.connect(self.refresh)
         self.examList = []
@@ -971,6 +1009,9 @@ class MainUi(QFrame):
         self.firstTimeFetch = True
         self.logoutView = None
         self.logoutWindow = None
+        self.nowYear = 0
+        self.acYear = []
+        self.accountDetail = None
         self.updateCheckThread = UpdateCheck()
         self.updateCheckThread.callback.connect(self.updateCallback)
         if cfg.get(cfg.autoUpdate):
@@ -989,7 +1030,7 @@ class MainUi(QFrame):
         self.setWindowTitle(_translate("Form", "ZhiXueHacker"))
         self.PrimaryPushButton.setText(_translate("Form", "登录"))
         self.CaptionLabel_3.setText(_translate("Form", "未登录"))
-        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2025 HShiDianLu. All Rights Reserved."))
+        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2026 HShiDianLu. All Rights Reserved."))
         self.CaptionLabel_2.setText(_translate("Form", "Version " + VERSION))
         self.StrongBodyLabel_2.setText(_translate("Form", "选择考试"))
         self.PrimaryPushButton_3.setText(_translate("Form", "选定该考试"))
@@ -1109,7 +1150,7 @@ class MainUi(QFrame):
     def fetch(self):
         self.PushButton_2.setEnabled(False)
         self.fetchPage += 1
-        self.fetchExamThread.setPat(self.token, self.fetchPage)
+        self.fetchExamThread.setPat(self.token, self.fetchPage, self.nowYear)
         self.fetchExamThread.start()
 
     def fetchDetail(self):
@@ -1118,7 +1159,8 @@ class MainUi(QFrame):
         self.fetchRankThread.setPat(self.token, self.examList[self.examIndex]['examId'],
                                     self.paperList[self.paperIndex]['paperId'],
                                     self.subjectRank, self.paperList[self.paperIndex]['subjectCode'], self.JSESSIONID,
-                                    self.tlsysSessionId)
+                                    self.tlsysSessionId, self.acYear, self.examList[self.examIndex]['ac'])
+        print(self.examList[self.examIndex])
         self.fetchRankThread.start()
 
     def emitDetail(self, success, info, subjectRank):
@@ -1178,12 +1220,41 @@ class MainUi(QFrame):
             self.JSESSIONID = JSESSIONID
             self.tlsysSessionId = tlsysSessionId
             self.token = token
-            self.username = username
+            self.username = username['name']
             self.CaptionLabel_3.setText("你好，" + self.username + "同学")
             self.loginSignal.emit(self.username, self.token)
-            self.fetchExamThread.setPat(self.token, 1)
+            self.fetchExamThread.setPat(self.token, 1, 0)
             self.fetchExamThread.start()
             self.ToolButton.setEnabled(True)
+            print(username['avatar'])
+            if "birthday" in username.keys() and username['birthday'] and username['birthday'] > 0:
+                bd = time.strftime("%Y-%m-%d", time.localtime(username['birthday'] / 1000))
+            else:
+                bd = "无"
+            self.accountDetail = (self.username + " " + username['code'] + "\n" +
+                                  username['clazz']['school']['name'] + " " +
+                                  username['clazz']['name'] +
+                                  "\n班级创建时间：" + time.strftime("%Y-%m-%d", time.localtime(
+                username['clazz']['createTime'] / 1000)) +
+                                  "\n班主任：" + username['clazz']['creator']['id'] +
+                                  "\n\n性别：" + (["女", "男"][int(username['gender'])] if username['gender'] else "无") +
+                                                                                                                "\n邮箱：" + (
+                                                                                                                    username[
+                                                                                                                        'email'] if
+                                                                                                                    username[
+                                                                                                                        'email'] else "无") +
+                                                                                                                "\n电话：" + (
+                                                                                                                    username[
+                                                                                                                        'mobile'] if
+                                                                                                                    username[
+                                                                                                                        'mobile'] else "无") +
+                                                                                                                "\n生日：" + bd +
+                                                                                                                "\n账号创建时间：" + time.strftime(
+                "%Y-%m-%d",
+                time.localtime(username['createTime'] / 1000)))
+            print(self.accountDetail)
+            self.avatarDownloadThread.setPat(FILEDIR, [username['avatar']])
+            self.avatarDownloadThread.start()
             InfoBar.success(
                 title="登录成功",
                 content="当前用户：" + self.username,
@@ -1209,8 +1280,37 @@ class MainUi(QFrame):
             )
         self.PrimaryPushButton.setEnabled(True)
 
-    def fetchExamCallback(self, success, info, examTmpList, hasNext):
+    def avatarCallback(self, success, info):
         if success:
+            print(info)
+            self.avatarSignal.emit(self.username, info, self.accountDetail)
+            print("emited")
+        else:
+            InfoBar.error(
+                title="头像获取失败",
+                content="错误信息：" + displayError(info),
+                orient=Qt.Horizontal,
+                isClosable=False,
+                position=InfoBarPosition.BOTTOM,
+                duration=5000,
+                parent=self
+            )
+
+    def fetchExamCallback(self, success, info, examTmpList, hasNext, acYear, nowYear, resp):
+        if success:
+            self.acYear = acYear
+            self.nowYear = nowYear
+            if resp or self.firstTimeFetch:
+                InfoBar.info(
+                    title="考试获取",
+                    content="当前学年：" + acYear[nowYear]['name'],
+                    orient=Qt.Horizontal,
+                    isClosable=False,
+                    position=InfoBarPosition.BOTTOM,
+                    duration=3000,
+                    parent=self
+                )
+                self.fetchPage = 1
             if not hasNext:
                 self.PushButton_2.setText("没有更多了")
                 self.PushButton_2.setEnabled(False)
@@ -1221,6 +1321,7 @@ class MainUi(QFrame):
                 self.ListWidget.addItem(QListWidgetItem(i['examName'] + " (" + i['examId'] + ")"))
             if self.firstTimeFetch:
                 self.firstTimeFetch = False
+                print(self.examList)
                 self.paperDiffThread.setPat(self.token, self.examList[0]['examId'], self.examList[0]['examName'], 0)
         else:
             InfoBar.error(
@@ -1309,7 +1410,8 @@ class MainUi(QFrame):
                 else:
                     release = "正式版"
                 title = '新版本：' + data['name'] + " [" + release + "]"
-                content = "版本号：" + data['tag_name'] + "\n更新时间：" + data['published_at'].replace("T"," ").replace("Z","") + "\n\n" + data['body']
+                content = "版本号：" + data['tag_name'] + "\n更新时间：" + data['published_at'].replace("T", " ").replace(
+                    "Z", "") + "\n\n" + data['body']
                 w = MessageBox(title, content, self)
                 w.setClosableOnMaskClicked(True)
                 w.yesButton.setText("前往 Github 页面")
@@ -1489,7 +1591,7 @@ class DetailUi(QWidget):
         self.TitleLabel.setText(_translate("Form", "学科概览"))
         self.CaptionLabel.setText(_translate("Form", "当前考试：无 | 当前学科：无"))
         self.CaptionLabel_3.setText(_translate("Form", ""))
-        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2025 HShiDianLu. All Rights Reserved."))
+        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2026 HShiDianLu. All Rights Reserved."))
         self.CaptionLabel_2.setText(_translate("Form", "Version " + VERSION))
 
     def activePage(self, examList, examIndex, paperList, paperIndex, subjectRank, username):
@@ -1529,14 +1631,15 @@ class DetailUi(QWidget):
         if subjectRank['rank']:
             InfoBar.warning(
                 title="排名功能警告",
-                content="排名仅供参考，可能会有1名之差。具体请以教师端排名为准。",
+                content="排名仅供参考，可能会有较大差异。具体请以教师端排名为准。\n智学网于近期将源数据近似取整，导致排名会有极大误差。",
                 orient=Qt.Horizontal,
                 isClosable=False,
                 position=InfoBarPosition.BOTTOM,
                 duration=5000,
                 parent=self
             )
-            self.BodyLabel_5.setText("班级排名（预计）：" + str(subjectRank['rank']))
+            self.BodyLabel_5.setText(
+                "班级排名（预计）：" + str(subjectRank['rank']) + "（前" + str(round(subjectRank['rankMulti'], 1)) + "%）")
         else:
             InfoBar.error(
                 title="排名获取失败",
@@ -1825,7 +1928,7 @@ class DownloadUI(QFrame):
     def retranslateUi(self):
         _translate = QCoreApplication.translate
         self.setWindowTitle(_translate("", "ZhiXueHacker"))
-        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2025 HShiDianLu. All Rights Reserved."))
+        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2026 HShiDianLu. All Rights Reserved."))
         self.CaptionLabel_2.setText(_translate("Form", "Version " + VERSION))
         self.TitleLabel.setText(_translate("Form", "试卷生成"))
         self.CaptionLabel.setText(_translate("Form", "当前考试：无 | 当前学科：无"))
@@ -2065,7 +2168,7 @@ class ScoreDetailUI(QFrame):
     def retranslateUi(self):
         _translate = QCoreApplication.translate
         self.setWindowTitle(_translate("Form", "ZhiXueHacker"))
-        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2025 HShiDianLu. All Rights Reserved."))
+        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2026 HShiDianLu. All Rights Reserved."))
         self.CaptionLabel_2.setText(_translate("Form", "Version " + VERSION))
         self.TitleLabel.setText(_translate("Form", "得分详情"))
         self.CaptionLabel.setText(_translate("Form", "当前考试：无 | 当前学科：无"))
@@ -2261,7 +2364,7 @@ class SettingUi(QFrame):
         self.setWindowTitle(_translate("Form", "ZhiXueHacker"))
         self.TitleLabel.setText(_translate("Form", "设置"))
         self.CaptionLabel.setText(_translate("Form", "设置程序运行方式"))
-        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2025 HShiDianLu. All Rights Reserved."))
+        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2026 HShiDianLu. All Rights Reserved."))
         self.CaptionLabel_2.setText(_translate("Form", "Version " + VERSION))
 
     def changeDir(self):
@@ -2495,9 +2598,9 @@ class InfoUi(QFrame):
         self.BodyLabel_3.setText(_translate("Form", "Author: HShiDianLu."))
         self.BodyLabel_5.setText(_translate("Form", "Version: " + VERSION))
         self.BodyLabel_10.setText(_translate("Form", "Github"))
-        self.CaptionLabel_2.setText(_translate("Form", "Licensed under The MIT License"))
+        self.CaptionLabel_2.setText(_translate("Form", "Licensed under GPL-3.0 License"))
         self.StrongBodyLabel_6.setText(_translate("Form", "开源"))
-        self.CaptionLabel_3.setText(_translate("Form", "Copyright © 2024-2025 HShiDianLu. All Rights Reserved."))
+        self.CaptionLabel_3.setText(_translate("Form", "Copyright © 2024-2026 HShiDianLu. All Rights Reserved."))
         self.StrongBodyLabel.setText(_translate("Form", "Pandoc License"))
         self.PlainTextEdit.setPlainText(_translate("Form", "Pandoc\n"
                                                            "Copyright (C) 2006-2023 John MacFarlane <jgm at berkeley dot edu>\n"
@@ -2713,7 +2816,8 @@ class InfoUi(QFrame):
                 else:
                     release = "正式版"
                 title = '新版本：' + data['name'] + " [" + release + "]"
-                content = "版本号：" + data['tag_name'] + "\n更新时间：" + data['published_at'].replace("T"," ").replace("Z","") + "\n\n" + data['body']
+                content = "版本号：" + data['tag_name'] + "\n更新时间：" + data['published_at'].replace("T", " ").replace(
+                    "Z", "") + "\n\n" + data['body']
                 w = MessageBox(title, content, self)
                 w.setClosableOnMaskClicked(True)
                 w.yesButton.setText("前往 Github 页面")
@@ -2891,7 +2995,7 @@ class ExamListUi(QFrame):
         self.setWindowTitle(_translate("Form", "ZhiXueHacker"))
         self.CaptionLabel_3.setText(_translate("Form", ""))
         self.TitleLabel.setText(_translate("Form", "在线考试"))
-        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2025 HShiDianLu. All Rights Reserved."))
+        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2026 HShiDianLu. All Rights Reserved."))
         self.CaptionLabel_2.setText(_translate("Form", "Version " + VERSION))
         self.StrongBodyLabel_3.setText(_translate("Form", "考试详情"))
         self.BodyLabel.setText(_translate("Form", ""))
@@ -3376,7 +3480,7 @@ class ExamUi(QWidget):
     def retranslateUi(self):
         _translate = QCoreApplication.translate
         self.setWindowTitle(_translate("Form", "ZhiXueHacker"))
-        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2025 HShiDianLu. All Rights Reserved."))
+        self.StrongBodyLabel.setText(_translate("Form", "Copyright © 2024-2026 HShiDianLu. All Rights Reserved."))
         self.CaptionLabel_2.setText(_translate("Form", "Version " + VERSION))
         self.StrongBodyLabel_2.setText(_translate("Form", ""))
         self.CaptionLabel_4.setText(_translate("Form", ""))
@@ -3652,18 +3756,12 @@ class StackedWidget(QFrame):
         self.setCurrentWidget(self.view.widget(index), anim)
 
 
-class MenuUiFrameless(FramelessWindow):
-    def __init__(self):
+class MenuUi(QFrame):
+    def __init__(self, titleBar=False):
         super().__init__()
-        self.setTitleBar(CustomTitleBar(self))
-
+        if titleBar:
+            self.setTitleBar(CustomTitleBar(self))
         self.hBoxLayout = QHBoxLayout(self)
-        self.navigationInterface = NavigationInterface(
-            self, showMenuButton=True, showReturnButton=True)
-        self.stackWidget = StackedWidget(self)
-
-        # self.windowEffect.setAcrylicEffect(self.winId(), "00000099")
-
         self.mainInterface = MainUi()
         self.aboutInterface = InfoUi()
         self.detailInterface = DetailUi()
@@ -3685,18 +3783,106 @@ class MenuUiFrameless(FramelessWindow):
         self.mainInterface.logoutSignal.connect(self.scoreDetailInterface.logout)
         self.mainInterface.logoutSignal.connect(self.examListInterface.logout)
         self.mainInterface.logoutSignal.connect(self.examInterface.logout)
+        self.mainInterface.logoutSignal.connect(lambda: self.navigationInterface.removeWidget('avatar'))
         self.mainInterface.loginSignal.connect(self.examListInterface.login)
         self.mainInterface.loginSignal.connect(self.examInterface.login)
+        self.mainInterface.avatarSignal.connect(self.insertAvatar)
         self.examListInterface.examSwitchSignal.connect(lambda: self.switchTo(self.examInterface))
         self.examListInterface.examSignal.connect(self.examInterface.setTitle)
         self.examListInterface.fetchOnlineContentThread.countdownCallback.connect(self.examInterface.countdownCallback)
         self.examListInterface.fetchOnlineContentThread.problemListCallback.connect(
             self.examInterface.problemListCallback)
+        self.settingInterface.syncChange.connect(self.mainInterface.changeSyncState)
 
+    def initNavigation(self):
+        self.navigationInterface.setAcrylicEnabled(True)
+
+        self.addSubInterface(self.mainInterface, FIF.HOME, '首页')
+        self.navigationInterface.addSeparator()
+        self.navigationInterface.addItemHeader('考试详情')
+        self.addSubInterface(self.detailInterface, FIF.PIE_SINGLE, '学科概览')
+        self.addSubInterface(self.scoreDetailInterface, FIF.IOT, '得分详情')
+        self.addSubInterface(self.downloadInterface, FIF.DOWNLOAD, '试卷生成')
+        self.navigationInterface.addSeparator()
+        self.navigationInterface.addItemHeader('在线考试')
+        self.addSubInterface(self.examListInterface, FIF.ALIGNMENT, '考试列表')
+        self.addSubInterface(self.examInterface, FIF.PENCIL_INK, '答题')
+        self.addSubInterface(self.settingInterface, FIF.SETTING, '设置', NavigationItemPosition.BOTTOM)
+        self.addSubInterface(self.aboutInterface, FIF.INFO, '关于', NavigationItemPosition.BOTTOM)
+
+        self.navigationInterface.setUpdateIndicatorPosOnCollapseFinished(True)
+
+    def insertAvatar(self, name, path, detail):
+        card = NavigationUserCard(self)
+        card.setAvatar(FILEDIR + "/" + path + ".png")
+        card.setTitle(name)
+        card.setSubtitle(detail.split("\n")[1])
+        self.navigationInterface.insertWidget(
+            index=0,
+            routeKey='avatar',
+            widget=card,
+            onClick=lambda: self.avatarClick(detail),
+            position=NavigationItemPosition.BOTTOM,
+        )
+        # self.userCard = self.navigationInterface.addUserCard(
+        #     routeKey='avatar',
+        #     avatar=FILEDIR + "/" + path + ".png",
+        #     title=name,
+        #     subtitle='shokokawaii@outlook.com',
+        #     onClick=lambda: self.avatarClick(detail),
+        #     position=NavigationItemPosition.TOP,
+        #     aboveMenuButton=False  # place below the expand/collapse button
+        # )
+
+    def avatarClick(self, detail):
+        w = MessageBox(
+            detail.split("\n")[0],
+            "\n".join(detail.split("\n")[1:]),
+            self
+        )
+        w.setClosableOnMaskClicked(True)
+        w.yesButton.setText("确认")
+        w.cancelButton.setText("关闭")
+        w.exec_()
+
+    def initWindow(self):
+        self.resize(870, 650)
+        ico_path = os.path.join(os.path.dirname(__file__), FILEDIR + "/ZhiXueIcon.ico")
+        icon = QIcon()
+        icon.addPixmap(QPixmap(ico_path), QIcon.Normal, QIcon.Off)
+        self.setWindowIcon(icon)
+        self.setWindowTitle('ZhiXueHacker | ' + VERSION)
+        self.setMinimumSize(self.width(), self.height())
+
+        self.titleBar.setAttribute(Qt.WA_StyledBackground)
+
+        desktop = QApplication.desktop().availableGeometry()
+        w, h = desktop.width(), desktop.height()
+        self.move(w // 2 - self.width() // 2, h // 2 - self.height() // 2)
+
+        self.setQss()
+
+    def setQss(self):
+        if isDarkTheme():
+            self.setStyleSheet(DARKQSS)
+        else:
+            self.setStyleSheet(LIGHTQSS)
+
+    def resizeEvent(self, e):
+        self.titleBar.move(46, 0)
+        self.titleBar.resize(self.width() - 46, self.titleBar.height())
+
+
+class MenuUiFrameless(MenuUi, FramelessWindow):
+    def __init__(self):
+        FramelessWindow.__init__(self)
+        self.navigationInterface = NavigationInterface(
+            self, showMenuButton=True, showReturnButton=True)
+        self.stackWidget = StackedWidget(self)
+
+        MenuUi.__init__(self, True)
         self.initLayout()
-
         self.initNavigation()
-
         self.initWindow()
 
     def initLayout(self):
@@ -3709,42 +3895,6 @@ class MenuUiFrameless(FramelessWindow):
         self.titleBar.raise_()
         self.navigationInterface.displayModeChanged.connect(self.titleBar.raise_)
 
-    def initNavigation(self):
-        self.navigationInterface.setAcrylicEnabled(True)
-
-        self.addSubInterface(self.mainInterface, FIF.HOME, '首页')
-        self.addSubInterface(self.detailInterface, FIF.PIE_SINGLE, '学科概览')
-        self.addSubInterface(self.scoreDetailInterface, FIF.IOT, '得分详情')
-        self.addSubInterface(self.downloadInterface, FIF.DOWNLOAD, '试卷生成')
-        self.navigationInterface.addSeparator()
-        self.addSubInterface(self.examListInterface, FIF.ALIGNMENT, '在线考试列表')
-        self.addSubInterface(self.examInterface, FIF.PENCIL_INK, '在线考试')
-        self.addSubInterface(self.settingInterface, FIF.SETTING, '设置', NavigationItemPosition.BOTTOM)
-        self.addSubInterface(self.aboutInterface, FIF.INFO, '关于', NavigationItemPosition.BOTTOM)
-
-        qrouter.setDefaultRouteKey(self.stackWidget, self.aboutInterface.objectName())
-
-        self.stackWidget.currentChanged.connect(self.onCurrentInterfaceChanged)
-        self.switchTo(self.aboutInterface, False)
-        self.stackWidget.setCurrentIndex(0, False)
-
-    def initWindow(self):
-        self.resize(870, 620)
-        ico_path = os.path.join(os.path.dirname(__file__), FILEDIR + "/ZhiXueIcon.ico")
-        icon = QIcon()
-        icon.addPixmap(QPixmap(ico_path), QIcon.Normal, QIcon.Off)
-        self.setWindowIcon(icon)
-        self.setWindowTitle('ZhiXueHacker | ' + VERSION)
-        self.setMinimumSize(self.width(), self.height())
-
-        self.titleBar.setAttribute(Qt.WA_StyledBackground)
-
-        desktop = QApplication.desktop().availableGeometry()
-        w, h = desktop.width(), desktop.height()
-        self.move(w // 2 - self.width() // 2, h // 2 - self.height() // 2)
-
-        self.setQss()
-
     def addSubInterface(self, interface, icon, text: str, position=NavigationItemPosition.TOP):
         self.stackWidget.addWidget(interface)
         self.navigationInterface.addItem(
@@ -3756,12 +3906,6 @@ class MenuUiFrameless(FramelessWindow):
             tooltip=text
         )
 
-    def setQss(self):
-        if isDarkTheme():
-            self.setStyleSheet(DARKQSS)
-        else:
-            self.setStyleSheet(LIGHTQSS)
-
     def switchTo(self, widget, anim=True):
         self.stackWidget.setCurrentWidget(widget, anim)
 
@@ -3770,91 +3914,14 @@ class MenuUiFrameless(FramelessWindow):
         self.navigationInterface.setCurrentItem(widget.objectName())
         qrouter.push(self.stackWidget, widget.objectName())
 
-    def resizeEvent(self, e):
-        self.titleBar.move(46, 0)
-        self.titleBar.resize(self.width() - 46, self.titleBar.height())
 
-
-class MenuUiFluent(FluentWindow):
+class MenuUiFluent(MenuUi, FluentWindow):
 
     def __init__(self):
         super().__init__()
-
         self.hBoxLayout = QHBoxLayout(self)
-
-        self.mainInterface = MainUi()
-        self.aboutInterface = InfoUi()
-        self.detailInterface = DetailUi()
-        self.settingInterface = SettingUi()
-        self.downloadInterface = DownloadUI()
-        self.scoreDetailInterface = ScoreDetailUI()
-        self.examListInterface = ExamListUi()
-        self.examInterface = ExamUi()
-
-        self.mainInterface.mainSignal.connect(self.detailInterface.activePage)
-        self.mainInterface.mainSignal.connect(self.downloadInterface.activePage)
-        self.mainInterface.mainSignal.connect(self.scoreDetailInterface.activePage)
-        self.mainInterface.mainSignal.connect(lambda: self.switchTo(self.detailInterface))
-        self.mainInterface.fetchRankThread.sheetCallback.connect(self.detailInterface.sheetCallback)
-        self.mainInterface.fetchRankThread.problemCallback.connect(self.downloadInterface.problemCallback)
-        self.mainInterface.fetchRankThread.scoreDetailCallback.connect(self.scoreDetailInterface.scoreDetailCallback)
-        self.mainInterface.logoutSignal.connect(self.detailInterface.logout)
-        self.mainInterface.logoutSignal.connect(self.downloadInterface.logout)
-        self.mainInterface.logoutSignal.connect(self.scoreDetailInterface.logout)
-        self.mainInterface.logoutSignal.connect(self.examListInterface.logout)
-        self.mainInterface.logoutSignal.connect(self.examInterface.logout)
-        self.mainInterface.loginSignal.connect(self.examListInterface.login)
-        self.mainInterface.loginSignal.connect(self.examInterface.login)
-        self.examListInterface.examSwitchSignal.connect(lambda: self.switchTo(self.examInterface))
-        self.examListInterface.examSignal.connect(self.examInterface.setTitle)
-        self.examListInterface.fetchOnlineContentThread.countdownCallback.connect(self.examInterface.countdownCallback)
-        self.examListInterface.fetchOnlineContentThread.problemListCallback.connect(
-            self.examInterface.problemListCallback)
-        self.settingInterface.syncChange.connect(self.mainInterface.changeSyncState)
-
         self.initNavigation()
-
         self.initWindow()
-
-    def initNavigation(self):
-        self.navigationInterface.setAcrylicEnabled(True)
-
-        self.addSubInterface(self.mainInterface, FIF.HOME, '首页')
-        self.addSubInterface(self.detailInterface, FIF.PIE_SINGLE, '学科概览')
-        self.addSubInterface(self.scoreDetailInterface, FIF.IOT, '得分详情')
-        self.addSubInterface(self.downloadInterface, FIF.DOWNLOAD, '试卷生成')
-        self.navigationInterface.addSeparator()
-        self.addSubInterface(self.examListInterface, FIF.ALIGNMENT, '在线考试列表')
-        self.addSubInterface(self.examInterface, FIF.PENCIL_INK, '在线考试')
-        self.addSubInterface(self.settingInterface, FIF.SETTING, '设置', NavigationItemPosition.BOTTOM)
-        self.addSubInterface(self.aboutInterface, FIF.INFO, '关于', NavigationItemPosition.BOTTOM)
-
-    def initWindow(self):
-        self.resize(870, 620)
-        ico_path = os.path.join(os.path.dirname(__file__), FILEDIR + "/ZhiXueIcon.ico")
-        icon = QIcon()
-        icon.addPixmap(QPixmap(ico_path), QIcon.Normal, QIcon.Off)
-        self.setWindowIcon(icon)
-        self.setWindowTitle('ZhiXueHacker | ' + VERSION)
-        self.setMinimumSize(self.width(), self.height())
-
-        self.titleBar.setAttribute(Qt.WA_StyledBackground)
-
-        desktop = QApplication.desktop().availableGeometry()
-        w, h = desktop.width(), desktop.height()
-        self.move(w // 2 - self.width() // 2, h // 2 - self.height() // 2)
-
-        self.setQss()
-
-    def setQss(self):
-        if isDarkTheme():
-            self.setStyleSheet(DARKQSS)
-        else:
-            self.setStyleSheet(LIGHTQSS)
-
-    def resizeEvent(self, e):
-        self.titleBar.move(46, 0)
-        self.titleBar.resize(self.width() - 46, self.titleBar.height())
 
 
 def show_MainWindow():
